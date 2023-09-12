@@ -10,13 +10,13 @@ const detectFaceController = {
             /* This operation searches for faces in a Rekognition collection that match a face in an S3 bucket. */
             var params = {
                 CollectionId: eventId, // each event has its own collection
-                FaceMatchThreshold: 95, 
+                FaceMatchThreshold: 95,
                 Image: {
-                S3Object: {
-                    Bucket: process.env.AWS_S3_BUCKET,
-                    Name: userId // each user has 1 selfie
-                }
-                }, 
+                    S3Object: {
+                        Bucket: process.env.AWS_S3_SELFIES_BUCKET,
+                        Name: userId // each user has 1 selfie
+                    }
+                },
                 MaxFaces: 5
             };
             rekognition.searchFacesByImage(params, function(err, data) {
