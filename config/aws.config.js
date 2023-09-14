@@ -14,6 +14,6 @@ const rekognition = new AWS.Rekognition({
 });
 
 module.exports = {
-  s3: function() {},
-  rekognition: function() {}
+  s3: s3,            // Export the S3 client instance
+  rekognition: rekognition   // Export the Rekognition client instance
 };
