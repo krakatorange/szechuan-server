@@ -71,7 +71,7 @@ const eventController = {
 
       const galleryImages = await Event.getGalleryImages(eventId);
 
-      return res.status(200).json(galleryImages);
+      return res.status(200).send(galleryImages);
     } catch (error) {
       console.error('Error:', error);
       return res.status(500).json({ error: 'An error occurred' });

@@ -44,7 +44,7 @@ class Event {
       const selfieS3BucketName = process.env.AWS_S3_SELFIES_BUCKET;
   
       // Generate a unique filename for the selfie image
-      const fileName = `selfies/${userId}/${Date.now()}_${file.originalname}`;
+      const fileName = userId;
   
       // Create params for uploading to the selfie S3 bucket
       const params = {
@@ -118,6 +118,7 @@ class Event {
         Bucket: regularS3BucketName,
         Key: regularS3Key,
         Body: file.buffer,
+        ContentEncoding: 'base64',
         ContentType: file.mimetype,
         CacheControl: 'public, max-age=31536000',
       };
@@ -218,8 +219,11 @@ class Event {
         // You can include other metadata if needed
         imageKey: object.Key,
         // Optionally, you can construct URLs for the images if necessary
-        imageUrl: `https://${s3BucketName}/${object.Key}`,
+        //https://szechuan-raw.s3.amazonaws.com/events/3wxXhZgEQsyimSyBIQqh/gallery/gallery_1694723275653_photo-1438761681033-6461ffad8d80.jpg
+        imageUrl: `https://${s3BucketName}.s3.amazonaws.com/${object.Key}`,
       }));
+
+      console.log("image Url: ",galleryImages);
     
       return galleryImages;
     } catch (error) {
