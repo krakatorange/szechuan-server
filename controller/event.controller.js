@@ -108,13 +108,13 @@ const eventController = {
   },
   grantAccessToEvent: async (req, res) => {
     try {
-      const { userId } = req.body;
+      const { userId, galleryUrl } = req.body;
       const { eventId } = req.params; // Assuming you send userId and eventId in the request body
-      if (!userId || !eventId) {
+      if (!userId || !eventId || !galleryUrl) {
         return res.status(400).json({ error: 'Missing userId or eventId' });
       }
   
-      await Event.grantAccessToEvent(userId, eventId);
+      await Event.grantAccessToEvent(userId, eventId, galleryUrl);
   
       res.status(200).json({ message: `Access granted to user ${userId} for event ${eventId}` });
     } catch (error) {
@@ -122,6 +122,27 @@ const eventController = {
       res.status(500).json({ error: 'Internal server error' });
     }
   },
+
+  /*getGalleryUrl: async (req, res) => {
+    try {
+      const { userId } = req.params; // Assuming userId and eventId are parameters in the request
+
+      if (!userId) {
+        return res.status(400).json({ error: 'Missing userId' });
+      }
+
+      const galleryUrl = await Event.getGalleryUrl(userId);
+
+      if (galleryUrl) {
+        res.status(200).json({ galleryUrl });
+      } else {
+        res.status(404).json({ error: 'Gallery URL not found' });
+      }
+    } catch (error) {
+      console.error('Error fetching gallery URL:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },*/
 };
 
 module.exports = eventController;

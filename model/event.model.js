@@ -262,7 +262,7 @@ class Event {
     }
 }
 
-static async grantAccessToEvent(userId, eventId) {
+static async grantAccessToEvent(userId, eventId, galleryUrl) {
   try {
     // Check if the user already has access to this event
     const accessRecordRef = db.collection('accessedEvents').doc(`${userId}_${eventId}`);
@@ -278,7 +278,8 @@ static async grantAccessToEvent(userId, eventId) {
     await accessRecordRef.set({
       userId: userId,
       eventId: eventId,
-      timestamp: admin.firestore.FieldValue.serverTimestamp(), // You can add a timestamp for reference
+      galleryUrl: galleryUrl, // Include the gallery URL
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     console.log(`Access granted to user ${userId} for event ${eventId}`);
@@ -288,7 +289,24 @@ static async grantAccessToEvent(userId, eventId) {
   }
 }
 
+// In your model (assuming you have access to Firebase Firestore as 'db')
+/*static async getGalleryUrl(userId, eventId) {
+  try {
+    const accessRecordRef = db.collection('accessedEvents').doc(`${userId}_${eventId}`);
+    const accessRecordSnapshot = await accessRecordRef.get();
 
+    if (accessRecordSnapshot.exists) {
+      const data = accessRecordSnapshot.data();
+      return data.galleryUrl;
+    } else {
+      console.log(`Access record not found for user ${userId} and event ${eventId}`);
+      return null; // Return null if the access record doesn't exist
+    }
+  } catch (error) {
+    console.error('Error fetching gallery URL:', error);
+    throw error;
+  }
+}*/
 }
 
 module.exports = Event;
