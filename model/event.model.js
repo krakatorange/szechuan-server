@@ -2,7 +2,6 @@ const admin = require('firebase-admin');
 const AWS = require("aws-sdk");
 require('dotenv').config();
 const awsConfig = require('../config/aws.config');
-const {detectFace} = require('../controller/detectFaceController')
 
 admin.initializeApp({
   credential: admin.credential.cert({
@@ -44,7 +43,7 @@ class Event {
       const selfieS3BucketName = process.env.AWS_S3_SELFIES_BUCKET;
   
       // Generate a unique filename for the selfie image
-      const fileName = userId;
+      const fileName = `selfies/${userId}/${Date.now()}_${file.originalname}`;
   
       // Create params for uploading to the selfie S3 bucket
       const params = {
@@ -253,7 +252,7 @@ class Event {
         // You can include other metadata if needed
         imageKey: object.Key,
         // Optionally, you can construct URLs for the images if necessary
-        imageUrl: `https://${s3BucketName}/${object.Key}`,
+        imageUrl: `https://${s3BucketName}.s3.amazonaws.com/${object.Key}`,
       }));
     
       return galleryImages;
