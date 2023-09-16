@@ -27,7 +27,7 @@ const eventController = {
 
   uploadGalleryImage: async (req, res) => {
     try {
-      const { eventId } = req.params;
+      const { eventId} = req.params;
       const galleryImage = req.file;
 
       if (!eventId || !galleryImage) {
@@ -37,6 +37,24 @@ const eventController = {
       const imageUrl = await Event.uploadGalleryImage(eventId, galleryImage);
 
       return res.status(201).json({ message: 'Gallery image uploaded successfully', imageUrl });
+    } catch (error) {
+      console.error('Error:', error);
+      return res.status(500).json({ error: 'An error occurred' });
+    }
+  },
+
+  uploadSelfie: async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const selfieImage = req.file;
+
+      if (!userId || !selfieImage) {
+        return res.status(400).json({ error: 'Incomplete data' });
+      }
+
+      const imageUrl = await Event.uploadSelfie(userId, selfieImage);
+
+      return res.status(201).json({ message: 'Selfie image uploaded successfully', imageUrl });
     } catch (error) {
       console.error('Error:', error);
       return res.status(500).json({ error: 'An error occurred' });
@@ -53,7 +71,7 @@ const eventController = {
 
       const galleryImages = await Event.getGalleryImages(eventId);
 
-      return res.status(200).json(galleryImages);
+      return res.status(200).send(galleryImages);
     } catch (error) {
       console.error('Error:', error);
       return res.status(500).json({ error: 'An error occurred' });
@@ -66,6 +84,23 @@ const eventController = {
       const events = await Event.getAll(userId);
   
       return res.status(200).json(events);
+    } catch (error) {
+      console.error('Error:', error);
+      return res.status(500).json({ error: 'An error occurred' });
+    }
+  },
+
+  getSelfieImageURL: async (req, res) => {
+    try {
+      const {userId} = req.params;
+
+      if (!userId) {
+        return res.status(400).json({ error: 'Incomplete data' });
+      }
+
+      const imageUrl = await Event.getSelfieImageURL(userId);
+
+      return res.status(200).json(imageUrl);
     } catch (error) {
       console.error('Error:', error);
       return res.status(500).json({ error: 'An error occurred' });

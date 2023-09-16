@@ -1,5 +1,7 @@
 const admin = require('firebase-admin');
+const AWS = require("aws-sdk");
 require('dotenv').config();
+const awsConfig = require('../config/aws.config');
 
 admin.initializeApp({
   credential: admin.credential.cert({
@@ -11,6 +13,7 @@ admin.initializeApp({
 });
 
 const db = admin.firestore(); // Initialize Firestore
+const s3 = awsConfig.s3; //Intialize AWS S3
 
 class Event {
   static async uploadCoverPhoto(file) {
@@ -34,49 +37,134 @@ class Event {
     }
   }
 
+  static async uploadSelfie(userId, file) {
+    try {
+      // Define the S3 bucket name for selfies
+      const selfieS3BucketName = process.env.AWS_S3_SELFIES_BUCKET;
+  
+      // Generate a unique filename for the selfie image
+      const fileName = `selfies/${userId}/${Date.now()}_${file.originalname}`;
+  
+      // Create params for uploading to the selfie S3 bucket
+      const params = {
+        Bucket: selfieS3BucketName,
+        Key: fileName,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+        CacheControl: 'public, max-age=31536000', // Optional: Set caching headers
+      };
+  
+      // Upload the image to the selfie S3 bucket
+      await s3.upload(params).promise();
+  
+      // Generate the S3 URL
+      const imageUrl = `https://${selfieS3BucketName}.s3.amazonaws.com/${encodeURIComponent(fileName)}`;
+  
+      // Return the URL of the uploaded selfie image
+      return { imageUrl };
+    } catch (error) {
+      console.error('Error uploading selfie image:', error);
+      throw error;
+    }
+  }
+
+
   static async uploadGalleryImage(eventId, file) {
     try {
-      const bucket = admin.storage().bucket();
-      const fileName = `events/${eventId}/gallery/${Date.now()}_${file.originalname}`;
-      const fileRef = bucket.file(fileName);
-  
-      await fileRef.save(file.buffer, {
-        contentType: file.mimetype,
-        metadata: {
-          cacheControl: 'public, max-age=31536000', // Optional: Set caching headers
-        },
-      });
-  
-      const imageUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(fileName)}?alt=media`;
-  
-      // Update the 'gallery' field in the event document
+      // Determine the Rekognition collection ID from the event document
       const eventRef = db.collection('events').doc(eventId);
+      const eventDoc = await eventRef.get();
+
+      if (!eventDoc.exists) {
+        throw new Error('Event not found');
+      }
+
+      const eventData = eventDoc.data();
+      const rekognitionCollectionId = eventData.rekognitionCollectionId;
+
+      // Create a unique image ID for Rekognition
+      const imageId = `gallery_${Date.now()}_${file.originalname}`;
+
+      // Upload the image to the Rekognition collection
+      const { rekognition } = awsConfig;
+      const rekognitionParams = {
+        CollectionId: rekognitionCollectionId,
+        ExternalImageId: imageId,
+        DetectionAttributes: ['ALL'],
+        Image: {
+          Bytes: file.buffer,
+        },
+      };
+
+      const rekognitionResponse = await rekognition.indexFaces(rekognitionParams).promise();
+
+      // Retrieve the Rekognition image ID from the response
+      const rekognitionImageId = rekognitionResponse.FaceRecords.length > 0
+        ? rekognitionResponse.FaceRecords[0].Face.ImageId
+        : undefined;
+
+      // Store the image URL in Firestore
+      const imageRef = `events/${eventId}/gallery/${imageId}`;
       await eventRef.update({
-        gallery: admin.firestore.FieldValue.arrayUnion(imageUrl),
+        regularGallery: admin.firestore.FieldValue.arrayUnion(imageRef),
       });
-  
-      return imageUrl;
+
+      // Upload the image to the regular S3 bucket
+      const regularS3BucketName = process.env.AWS_S3_RAW_BUCKET;
+      const regularS3Key = `events/${eventId}/gallery/${imageId}`;
+
+      const regularS3Params = {
+        Bucket: regularS3BucketName,
+        Key: regularS3Key,
+        Body: file.buffer,
+        ContentEncoding: 'base64',
+        ContentType: file.mimetype,
+        CacheControl: 'public, max-age=31536000',
+      };
+
+      await s3.upload(regularS3Params).promise();
+
+      return rekognitionImageId;
     } catch (error) {
       console.error('Error uploading gallery image:', error);
       throw error;
     }
-  }
+}
   
   static async createEvent(eventName, eventDateTime, eventLocation, coverPhoto, creatorId) {
     try {
       const coverPhotoUrl = await this.uploadCoverPhoto(coverPhoto);
-
+  
       // Create a new document in Firestore
       const eventRef = db.collection('events').doc();
       const eventId = eventRef.id;
+  
+      // Create a corresponding Rekognition collection for the event
+      const { rekognition } = awsConfig;
+  
+      const rekognitionParams = {
+        CollectionId: `szechuan_event_${eventId}`, // Use a unique collection ID for each event
+      };
+  
+      // Attempt to create the Rekognition collection
+      try {
+        await rekognition.createCollection(rekognitionParams).promise();
+        console.log(`Rekognition collection '${rekognitionParams.CollectionId}' created successfully`);
+      } catch (rekognitionError) {
+        console.error('Error creating Rekognition collection:', rekognitionError);
+        throw rekognitionError;
+      }
+  
+      // Update the event document with the collection ID
       await eventRef.set({
         eventName,
         eventDateTime,
         eventLocation,
         coverPhotoUrl,
         creatorId,
+        rekognitionCollectionId: rekognitionParams.CollectionId,
       });
-
+  
       console.log('Event created successfully');
       return eventId;
     } catch (error) {
@@ -84,6 +172,8 @@ class Event {
       throw error;
     }
   }
+  
+  
 
   static async getAll(userId) {
     try {
@@ -111,20 +201,67 @@ class Event {
 
   static async getGalleryImages(eventId) {
     try {
-      const eventRef = db.collection('events').doc(eventId);
-      const eventDoc = await eventRef.get();
-  
-      if (!eventDoc.exists) {
-        return []; // Event not found
-      }
-  
-      const eventData = eventDoc.data();
-      return eventData.gallery || [];
+      const s3BucketName = process.env.AWS_S3_RAW_BUCKET;
+      // You can construct the S3 key based on the eventId if needed
+      // For example:
+      const s3KeyPrefix = `events/${eventId}/gallery/`; // Adjust as needed
+    
+      const params = {
+        Bucket: s3BucketName,
+        Prefix: s3KeyPrefix, // Use a prefix to fetch all images for the event
+      };
+    
+      const s3Objects = await s3.listObjectsV2(params).promise();
+    
+      // Extract the image objects and return them
+      const galleryImages = s3Objects.Contents.map((object) => ({
+        // You can include other metadata if needed
+        imageKey: object.Key,
+        // Optionally, you can construct URLs for the images if necessary
+        //https://szechuan-raw.s3.amazonaws.com/events/3wxXhZgEQsyimSyBIQqh/gallery/gallery_1694723275653_photo-1438761681033-6461ffad8d80.jpg
+        imageUrl: `https://${s3BucketName}.s3.amazonaws.com/${object.Key}`,
+      }));
+
+      console.log("image Url: ",galleryImages);
+    
+      return galleryImages;
     } catch (error) {
-      console.error('Error fetching gallery images:', error);
+      console.error('Error fetching gallery images from S3:', error);
       throw error;
     }
   }
+  
+  
+
+  static async getSelfieImageURL(userId) {
+    try {
+      const s3BucketName = process.env.AWS_S3_SELFIES_BUCKET;
+      // You can construct the S3 key based on the eventId if needed
+      // For example:
+      const s3KeyPrefix = `events/${eventId}/gallery/`; // Adjust as needed
+    
+      const params = {
+        Bucket: s3BucketName,
+        Prefix: s3KeyPrefix, // Use a prefix to fetch all images for the event
+      };
+    
+      const s3Objects = await s3.listObjectsV2(params).promise();
+    
+      // Extract the image objects and return them
+      const galleryImages = s3Objects.Contents.map((object) => ({
+        // You can include other metadata if needed
+        imageKey: object.Key,
+        // Optionally, you can construct URLs for the images if necessary
+        imageUrl: `https://${s3BucketName}.s3.amazonaws.com/${object.Key}`,
+      }));
+    
+      return galleryImages;
+    } catch (error) {
+      console.error('Error fetching gallery images from S3:', error);
+      throw error;
+    }
+}
+
 }
 
 module.exports = Event;
