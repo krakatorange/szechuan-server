@@ -238,7 +238,7 @@ class Event {
       const s3BucketName = process.env.AWS_S3_SELFIES_BUCKET;
       // You can construct the S3 key based on the eventId if needed
       // For example:
-      const s3KeyPrefix = `events/${eventId}/gallery/`; // Adjust as needed
+      const s3KeyPrefix = `selfies/${userId}/`; // Adjust as needed
     
       const params = {
         Bucket: s3BucketName,
@@ -248,19 +248,46 @@ class Event {
       const s3Objects = await s3.listObjectsV2(params).promise();
     
       // Extract the image objects and return them
-      const galleryImages = s3Objects.Contents.map((object) => ({
+      const SelfieImages = s3Objects.Contents.map((object) => ({
         // You can include other metadata if needed
         imageKey: object.Key,
         // Optionally, you can construct URLs for the images if necessary
         imageUrl: `https://${s3BucketName}.s3.amazonaws.com/${object.Key}`,
       }));
     
-      return galleryImages;
+      return SelfieImages;
     } catch (error) {
       console.error('Error fetching gallery images from S3:', error);
       throw error;
     }
 }
+
+static async grantAccessToEvent(userId, eventId) {
+  try {
+    // Check if the user already has access to this event
+    const accessRecordRef = db.collection('accessedEvents').doc(`${userId}_${eventId}`);
+    const accessRecordSnapshot = await accessRecordRef.get();
+    
+    if (accessRecordSnapshot.exists) {
+      // The user already has access, no need to grant access again
+      console.log(`User ${userId} already has access to event ${eventId}`);
+      return;
+    }
+
+    // Create a new document in the "accessedEvents" collection
+    await accessRecordRef.set({
+      userId: userId,
+      eventId: eventId,
+      timestamp: admin.firestore.FieldValue.serverTimestamp(), // You can add a timestamp for reference
+    });
+
+    console.log(`Access granted to user ${userId} for event ${eventId}`);
+  } catch (error) {
+    console.error('Error granting access to event:', error);
+    throw error;
+  }
+}
+
 
 }
 

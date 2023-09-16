@@ -106,6 +106,22 @@ const eventController = {
       return res.status(500).json({ error: 'An error occurred' });
     }
   },
+  grantAccessToEvent: async (req, res) => {
+    try {
+      const { userId } = req.body;
+      const { eventId } = req.params; // Assuming you send userId and eventId in the request body
+      if (!userId || !eventId) {
+        return res.status(400).json({ error: 'Missing userId or eventId' });
+      }
+  
+      await Event.grantAccessToEvent(userId, eventId);
+  
+      res.status(200).json({ message: `Access granted to user ${userId} for event ${eventId}` });
+    } catch (error) {
+      console.error('Error granting access:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
 };
 
 module.exports = eventController;

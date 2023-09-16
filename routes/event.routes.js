@@ -15,6 +15,6 @@ router.post('/:userId/selfie', upload.single('selfieImage'), eventController.upl
 router.get('/getselfie/:userId', eventController.getSelfieImageURL);
 router.post('/detect-face', detectFaceController.detectFace);
 router.get('/matched/:userId/:eventId', detectFaceController.getMatchedImages);
-
+router.post('/access/:eventId', eventController.grantAccessToEvent);
 
 module.exports = router;
