@@ -2,6 +2,7 @@ const admin = require('firebase-admin');
 const AWS = require("aws-sdk");
 require('dotenv').config();
 const awsConfig = require('../config/aws.config');
+const {getExistingFileName, deleteSelfie} = require('../s3Utilitis');
 
 admin.initializeApp({
   credential: admin.credential.cert({
@@ -42,7 +43,15 @@ class Event {
       // Define the S3 bucket name for selfies
       const selfieS3BucketName = process.env.AWS_S3_SELFIES_BUCKET;
   
-      // Generate a unique filename for the selfie image
+      // Check if the user already has an image
+      const existingFileName = await getExistingFileName(userId);
+  
+      // If the user has an existing image, delete it
+      if (existingFileName) {
+        await deleteSelfie(userId, existingFileName);
+      }
+  
+      // Generate a unique filename for the new selfie image
       const fileName = `selfies/${userId}/${Date.now()}_${file.originalname}`;
   
       // Create params for uploading to the selfie S3 bucket
@@ -54,10 +63,10 @@ class Event {
         CacheControl: 'public, max-age=31536000', // Optional: Set caching headers
       };
   
-      // Upload the image to the selfie S3 bucket
+      // Upload the new image to the selfie S3 bucket
       await s3.upload(params).promise();
   
-      // Generate the S3 URL
+      // Generate the S3 URL for the new image
       const imageUrl = `https://${selfieS3BucketName}.s3.amazonaws.com/${encodeURIComponent(fileName)}`;
   
       // Return the URL of the uploaded selfie image
@@ -67,8 +76,7 @@ class Event {
       throw error;
     }
   }
-
-
+  
   static async uploadGalleryImage(eventId, file) {
     try {
       // Determine the Rekognition collection ID from the event document
@@ -289,24 +297,6 @@ static async grantAccessToEvent(userId, eventId, galleryUrl) {
   }
 }
 
-// In your model (assuming you have access to Firebase Firestore as 'db')
-/*static async getGalleryUrl(userId, eventId) {
-  try {
-    const accessRecordRef = db.collection('accessedEvents').doc(`${userId}_${eventId}`);
-    const accessRecordSnapshot = await accessRecordRef.get();
-
-    if (accessRecordSnapshot.exists) {
-      const data = accessRecordSnapshot.data();
-      return data.galleryUrl;
-    } else {
-      console.log(`Access record not found for user ${userId} and event ${eventId}`);
-      return null; // Return null if the access record doesn't exist
-    }
-  } catch (error) {
-    console.error('Error fetching gallery URL:', error);
-    throw error;
-  }
-}*/
 }
 
 module.exports = Event;
