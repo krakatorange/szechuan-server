@@ -297,6 +297,23 @@ static async grantAccessToEvent(userId, eventId, galleryUrl) {
   }
 }
 
+static async getGalleryUrl(userId, eventId) {
+  try {
+    const accessRecordRef = db.collection('accessedEvents').doc(`${userId}_${eventId}`);
+    const accessRecordSnapshot = await accessRecordRef.get();
+
+    if (accessRecordSnapshot.exists) {
+      const data = accessRecordSnapshot.data();
+      return data.galleryUrl;
+    } else {
+      console.log(`Access record not found for user ${userId} and event ${eventId}`);
+      return null; // Return null if the access record doesn't exist
+    }
+  } catch (error) {
+    console.error('Error fetching gallery URL:', error);
+    throw error;
+  }
+}
 }
 
 module.exports = Event;

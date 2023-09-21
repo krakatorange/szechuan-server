@@ -122,6 +122,25 @@ const eventController = {
       res.status(500).json({ error: 'Internal server error' });
     }
   },
-};
+  getGalleryUrl: async (req, res) => {
+    try {
+      const { userId, eventId } = req.params; // Assuming userId and eventId are parameters in the request
 
+      if (!userId || !eventId) {
+        return res.status(400).json({ error: 'Missing userId and eventId' });
+      }
+
+      const galleryUrl = await Event.getGalleryUrl(userId, eventId);
+
+      if (galleryUrl) {
+        res.status(200).json({ galleryUrl });
+      } else {
+        res.status(404).json({ error: 'Gallery URL not found' });
+      }
+    } catch (error) {
+      console.error('Error fetching gallery URL:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+};
 module.exports = eventController;
