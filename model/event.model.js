@@ -3,6 +3,7 @@ const AWS = require("aws-sdk");
 require('dotenv').config();
 const awsConfig = require('../config/aws.config');
 const {getExistingFileName, deleteSelfie} = require('../s3Utilitis');
+const sharp = require('sharp')
 
 admin.initializeApp({
   credential: admin.credential.cert({
@@ -79,6 +80,11 @@ class Event {
   
   static async uploadGalleryImage(eventId, file) {
     try {
+      // Process the image: Compression without significant loss in quality
+      const processedBuffer = await sharp(file.buffer)
+        .jpeg({ quality: 90 }) // You can adjust this quality setting
+        .toBuffer();
+
       // Determine the Rekognition collection ID from the event document
       const eventRef = db.collection('events').doc(eventId);
       const eventDoc = await eventRef.get();
@@ -100,7 +106,7 @@ class Event {
         ExternalImageId: imageId,
         DetectionAttributes: ['ALL'],
         Image: {
-          Bytes: file.buffer,
+          Bytes: processedBuffer, // Use the processed buffer here
         },
       };
 
@@ -124,7 +130,7 @@ class Event {
       const regularS3Params = {
         Bucket: regularS3BucketName,
         Key: regularS3Key,
-        Body: file.buffer,
+        Body: processedBuffer, // Use the processed buffer here
         ContentEncoding: 'base64',
         ContentType: file.mimetype,
         CacheControl: 'public, max-age=31536000',
