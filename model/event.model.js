@@ -80,10 +80,21 @@ class Event {
   
   static async uploadGalleryImage(eventId, file) {
     try {
-      // Process the image: Compression without significant loss in quality
-      const processedBuffer = await sharp(file.buffer)
-        .jpeg({ quality: 90 }) // You can adjust this quality setting
-        .toBuffer();
+      let processedBuffer;
+      const imageFormat = file.mimetype.split('/')[1]; // e.g., "jpeg", "png", "raw", etc.
+
+      switch (imageFormat) {
+        case 'jpeg':
+          processedBuffer = await sharp(file.buffer).jpeg({ quality: 90 }).toBuffer();
+          break;
+        case 'png':
+          processedBuffer = await sharp(file.buffer).png({ quality: 90 }).toBuffer();
+          break;
+        default:
+          // For raw or other formats, use the original buffer without further processing.
+          processedBuffer = file.buffer;
+          break;
+      }
 
       // Determine the Rekognition collection ID from the event document
       const eventRef = db.collection('events').doc(eventId);
@@ -106,7 +117,7 @@ class Event {
         ExternalImageId: imageId,
         DetectionAttributes: ['ALL'],
         Image: {
-          Bytes: processedBuffer, // Use the processed buffer here
+          Bytes: processedBuffer,
         },
       };
 
@@ -130,7 +141,7 @@ class Event {
       const regularS3Params = {
         Bucket: regularS3BucketName,
         Key: regularS3Key,
-        Body: processedBuffer, // Use the processed buffer here
+        Body: processedBuffer,
         ContentEncoding: 'base64',
         ContentType: file.mimetype,
         CacheControl: 'public, max-age=31536000',
@@ -144,7 +155,7 @@ class Event {
       throw error;
     }
 }
-  
+
   static async createEvent(eventName, eventDateTime, eventLocation, coverPhoto, creatorId) {
     try {
       const coverPhotoUrl = await this.uploadCoverPhoto(coverPhoto);
