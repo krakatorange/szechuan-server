@@ -77,22 +77,31 @@ class Event {
       throw error;
     }
   }
-  
-  static async uploadGalleryImage(eventId, file) {
+
+static async uploadGalleryImage(eventId, file) {
     try {
       let processedBuffer;
       const imageFormat = file.mimetype.split('/')[1]; // e.g., "jpeg", "png", "raw", etc.
 
       switch (imageFormat) {
         case 'jpeg':
-          processedBuffer = await sharp(file.buffer).jpeg({ quality: 90 }).toBuffer();
+          processedBuffer = await sharp(file.buffer)
+            .rotate()  // Automatically rotate based on EXIF
+            .jpeg({ quality: 90 })
+            .toBuffer();
           break;
         case 'png':
-          processedBuffer = await sharp(file.buffer).png({ quality: 90 }).toBuffer();
+          processedBuffer = await sharp(file.buffer)
+            .rotate()  // Automatically rotate based on EXIF
+            .png({ quality: 90 })
+            .toBuffer();
           break;
         default:
-          // For raw or other formats, use the original buffer without further processing.
-          processedBuffer = file.buffer;
+          // For raw or other formats, convert to PNG
+          processedBuffer = await sharp(file.buffer)
+            .rotate()  // Automatically rotate based on EXIF
+            .png()
+            .toBuffer();
           break;
       }
 
@@ -138,12 +147,15 @@ class Event {
       const regularS3BucketName = process.env.AWS_S3_RAW_BUCKET;
       const regularS3Key = `events/${eventId}/gallery/${imageId}`;
 
+      // Determine the ContentType based on original or converted format
+      const contentType = imageFormat === 'raw' ? 'image/png' : file.mimetype;
+
       const regularS3Params = {
         Bucket: regularS3BucketName,
         Key: regularS3Key,
         Body: processedBuffer,
         ContentEncoding: 'base64',
-        ContentType: file.mimetype,
+        ContentType: contentType,
         CacheControl: 'public, max-age=31536000',
       };
 
