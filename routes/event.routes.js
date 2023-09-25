@@ -18,6 +18,6 @@ router.post('/detect-face', detectFaceController.detectFace);
 router.get('/matched/:userId/:eventId', detectFaceController.getMatchedImages);
 router.post('/access/:eventId', eventController.grantAccessToEvent);
 router.get('/fetch-external-resource', corsProxyMiddleware);
-router.get('/getgallery/:userId/:eventId', eventController.getGalleryUrl);
+router.get('/getgallery/:userId/:eventId', eventController.getEventDetails);
 
 module.exports = router;

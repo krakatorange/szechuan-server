@@ -326,23 +326,41 @@ static async grantAccessToEvent(userId, eventId, galleryUrl) {
   }
 }
 
-static async getGalleryUrl(userId, eventId) {
+static async getEventDetails(userId, eventId) {
   try {
+    // First, check if the user has accessed the event.
     const accessRecordRef = db.collection('accessedEvents').doc(`${userId}_${eventId}`);
     const accessRecordSnapshot = await accessRecordRef.get();
 
     if (accessRecordSnapshot.exists) {
-      const data = accessRecordSnapshot.data();
-      return data.galleryUrl;
+      // If the user has accessed the event, fetch the event details.
+      const eventRef = db.collection('events').doc(eventId);
+      const eventSnapshot = await eventRef.get();
+
+      if (eventSnapshot.exists) {
+        const eventData = eventSnapshot.data();
+        return {
+          id: eventSnapshot.id,
+          eventName: eventData.eventName,
+          eventDateTime: eventData.eventDateTime,
+          eventLocation: eventData.eventLocation,
+          coverPhotoUrl: eventData.coverPhotoUrl
+        };
+      } else {
+        console.log(`Event not found for event ID ${eventId}`);
+        return null;
+      }
     } else {
       console.log(`Access record not found for user ${userId} and event ${eventId}`);
-      return null; // Return null if the access record doesn't exist
+      return null;
     }
   } catch (error) {
-    console.error('Error fetching gallery URL:', error);
+    console.error('Error fetching event details:', error);
     throw error;
   }
 }
+
+
 }
 
 module.exports = Event;
