@@ -122,6 +122,26 @@ const eventController = {
       res.status(500).json({ error: 'Internal server error' });
     }
   },
+  getEventDetails: async (req, res) => {
+    try {
+      const { userId, eventId } = req.params; 
+  
+      if (!userId || !eventId) {
+        return res.status(400).json({ error: 'Missing userId and eventId' });
+      }
+  
+      const eventDetails = await Event.getEventDetails(userId, eventId);
+  
+      if (eventDetails) {
+        res.status(200).json(eventDetails);  // return the whole event details
+      } else {
+        res.status(404).json({ error: 'Event details not found' });
+      }
+    } catch (error) {
+      console.error('Error fetching event details:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+  
 };
-
 module.exports = eventController;

@@ -3,6 +3,7 @@ const AWS = require("aws-sdk");
 require('dotenv').config();
 const awsConfig = require('../config/aws.config');
 const {getExistingFileName, deleteSelfie} = require('../s3Utilitis');
+const sharp = require('sharp')
 
 admin.initializeApp({
   credential: admin.credential.cert({
@@ -76,9 +77,34 @@ class Event {
       throw error;
     }
   }
-  
-  static async uploadGalleryImage(eventId, file) {
+
+static async uploadGalleryImage(eventId, file) {
     try {
+      let processedBuffer;
+      const imageFormat = file.mimetype.split('/')[1]; // e.g., "jpeg", "png", "raw", etc.
+
+      switch (imageFormat) {
+        case 'jpeg':
+          processedBuffer = await sharp(file.buffer)
+            .rotate()  // Automatically rotate based on EXIF
+            .jpeg({ quality: 90 })
+            .toBuffer();
+          break;
+        case 'png':
+          processedBuffer = await sharp(file.buffer)
+            .rotate()  // Automatically rotate based on EXIF
+            .png({ quality: 90 })
+            .toBuffer();
+          break;
+        default:
+          // For raw or other formats, convert to PNG
+          processedBuffer = await sharp(file.buffer)
+            .rotate()  // Automatically rotate based on EXIF
+            .png()
+            .toBuffer();
+          break;
+      }
+
       // Determine the Rekognition collection ID from the event document
       const eventRef = db.collection('events').doc(eventId);
       const eventDoc = await eventRef.get();
@@ -100,7 +126,7 @@ class Event {
         ExternalImageId: imageId,
         DetectionAttributes: ['ALL'],
         Image: {
-          Bytes: file.buffer,
+          Bytes: processedBuffer,
         },
       };
 
@@ -121,12 +147,15 @@ class Event {
       const regularS3BucketName = process.env.AWS_S3_RAW_BUCKET;
       const regularS3Key = `events/${eventId}/gallery/${imageId}`;
 
+      // Determine the ContentType based on original or converted format
+      const contentType = imageFormat === 'raw' ? 'image/png' : file.mimetype;
+
       const regularS3Params = {
         Bucket: regularS3BucketName,
         Key: regularS3Key,
-        Body: file.buffer,
+        Body: processedBuffer,
         ContentEncoding: 'base64',
-        ContentType: file.mimetype,
+        ContentType: contentType,
         CacheControl: 'public, max-age=31536000',
       };
 
@@ -138,7 +167,7 @@ class Event {
       throw error;
     }
 }
-  
+
   static async createEvent(eventName, eventDateTime, eventLocation, coverPhoto, creatorId) {
     try {
       const coverPhotoUrl = await this.uploadCoverPhoto(coverPhoto);
@@ -296,6 +325,41 @@ static async grantAccessToEvent(userId, eventId, galleryUrl) {
     throw error;
   }
 }
+
+static async getEventDetails(userId, eventId) {
+  try {
+    // First, check if the user has accessed the event.
+    const accessRecordRef = db.collection('accessedEvents').doc(`${userId}_${eventId}`);
+    const accessRecordSnapshot = await accessRecordRef.get();
+
+    if (accessRecordSnapshot.exists) {
+      // If the user has accessed the event, fetch the event details.
+      const eventRef = db.collection('events').doc(eventId);
+      const eventSnapshot = await eventRef.get();
+
+      if (eventSnapshot.exists) {
+        const eventData = eventSnapshot.data();
+        return {
+          id: eventSnapshot.id,
+          eventName: eventData.eventName,
+          eventDateTime: eventData.eventDateTime,
+          eventLocation: eventData.eventLocation,
+          coverPhotoUrl: eventData.coverPhotoUrl
+        };
+      } else {
+        console.log(`Event not found for event ID ${eventId}`);
+        return null;
+      }
+    } else {
+      console.log(`Access record not found for user ${userId} and event ${eventId}`);
+      return null;
+    }
+  } catch (error) {
+    console.error('Error fetching event details:', error);
+    throw error;
+  }
+}
+
 
 }
 
