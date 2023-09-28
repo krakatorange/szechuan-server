@@ -1,43 +1,44 @@
-// corsProxyMiddleware.js
+let fetch;
+
+import('node-fetch').then(nodeFetch => {
+    fetch = nodeFetch.default;
+}).catch(error => {
+    console.error('Failed to load node-fetch:', error);
+});
 
 const corsProxyMiddleware = async (req, res) => {
-  try {
-    // Get the external resource URL from the request query or body
-    const { externalResourceUrl } = req.query; // Assuming it's sent as a query parameter
-
-    if (!externalResourceUrl) {
-      throw new Error('External resource URL is missing');
+    if (!fetch) {
+        return res.status(500).json({ error: 'Internal server error - fetch not initialized' });
     }
 
-    console.log('Fetching external resource from URL:', externalResourceUrl);
+    try {
+        const { externalResourceUrl } = req.query;
 
-    // Make a request to the external resource
-    const response = await fetch(externalResourceUrl);
+        if (!externalResourceUrl) {
+            throw new Error('External resource URL is missing');
+        }
 
-    // Check if the response status is OK (200)
-    if (response.status === 200) {
-      // Get the content type of the response
-      const contentType = response.headers.get('content-type');
+        const response = await fetch('https://captureoneliveshare-api-0e0132ffb41f.herokuapp.com/get_images/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': 'DVU2xAC48wkkISEftPCc5g',
+            },
+            body: JSON.stringify({ url: externalResourceUrl }),
+        });
 
-      // Check if the content type indicates an image (e.g., 'image/jpeg', 'image/png', etc.)
-      if (contentType && contentType.startsWith('image/')) {
-        // Send the image binary data as the response to the client
-        const imageBuffer = await response.buffer();
-        res.setHeader('Content-Type', contentType);
-        res.end(imageBuffer);
-      } else {
-        // If the content type is not an image, handle it accordingly (e.g., as JSON)
-        const data = await response.json();
-        res.json(data);
-      }
-    } else {
-      // If the response status is not OK, send an error response
-      res.status(response.status).json({ error: 'Failed to fetch external resource' });
+        if (response.status === 200) {
+            const data = await response.json();
+            console.log("API Response:", data); // Log the data from the API
+            res.json(data);
+        } else {
+            console.error("API returned non-200 status:", response.status);
+            res.status(response.status).json({ error: 'Failed to fetch external resource' });
+        }
+    } catch (error) {
+        console.error('Error in corsProxyMiddleware:', error);
+        res.status(500).json({ error: 'Internal server error' });
     }
-  } catch (error) {
-    console.error('Error in corsProxyMiddleware:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
 };
 
 module.exports = corsProxyMiddleware;
