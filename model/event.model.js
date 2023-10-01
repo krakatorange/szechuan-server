@@ -78,95 +78,104 @@ class Event {
     }
   }
 
-static async uploadGalleryImage(eventId, file) {
+  static async uploadGalleryImage(eventId, file) {
     try {
-      let processedBuffer;
-      const imageFormat = file.mimetype.split('/')[1]; // e.g., "jpeg", "png", "raw", etc.
+        // Fetch the Image URLs from Firestore
+        const eventRef = db.collection('events').doc(eventId);
+        const eventDoc = await eventRef.get();
 
-      switch (imageFormat) {
-        case 'jpeg':
-          processedBuffer = await sharp(file.buffer)
-            .rotate()  // Automatically rotate based on EXIF
-            .jpeg({ quality: 90 })
-            .toBuffer();
-          break;
-        case 'png':
-          processedBuffer = await sharp(file.buffer)
-            .rotate()  // Automatically rotate based on EXIF
-            .png({ quality: 90 })
-            .toBuffer();
-          break;
-        default:
-          // For raw or other formats, convert to PNG
-          processedBuffer = await sharp(file.buffer)
-            .rotate()  // Automatically rotate based on EXIF
-            .png()
-            .toBuffer();
-          break;
-      }
+        if (!eventDoc.exists) {
+            throw new Error('Event not found');
+        }
 
-      // Determine the Rekognition collection ID from the event document
-      const eventRef = db.collection('events').doc(eventId);
-      const eventDoc = await eventRef.get();
+        const eventData = eventDoc.data();
+        const galleryImages = eventData.regularGallery || []; // Assuming `regularGallery` is an array of image URLs.
 
-      if (!eventDoc.exists) {
-        throw new Error('Event not found');
-      }
+        // Check against the Current Image
+        const imageId = `gallery_${file.originalname}`;
+        const imageRef = `events/${eventId}/gallery/${imageId}`;
 
-      const eventData = eventDoc.data();
-      const rekognitionCollectionId = eventData.rekognitionCollectionId;
+        if (galleryImages.includes(imageRef)) {
+            // Image already exists, return or throw an error
+            throw new Error('Image already exists in the gallery.');
+        }
 
-      // Create a unique image ID for Rekognition
-      const imageId = `gallery_${Date.now()}_${file.originalname}`;
+        // Process the image
+        let processedBuffer;
+        const imageFormat = file.mimetype.split('/')[1]; 
 
-      // Upload the image to the Rekognition collection
-      const { rekognition } = awsConfig;
-      const rekognitionParams = {
-        CollectionId: rekognitionCollectionId,
-        ExternalImageId: imageId,
-        DetectionAttributes: ['ALL'],
-        Image: {
-          Bytes: processedBuffer,
-        },
-      };
+        switch (imageFormat) {
+            case 'jpeg':
+                processedBuffer = await sharp(file.buffer)
+                    .rotate()  
+                    .jpeg({ quality: 90 })
+                    .toBuffer();
+                break;
+            case 'png':
+                processedBuffer = await sharp(file.buffer)
+                    .rotate()  
+                    .png({ quality: 90 })
+                    .toBuffer();
+                break;
+            default:
+                processedBuffer = await sharp(file.buffer)
+                    .rotate()  
+                    .png()
+                    .toBuffer();
+                break;
+        }
 
-      const rekognitionResponse = await rekognition.indexFaces(rekognitionParams).promise();
+        // Determine the Rekognition collection ID from the event document
+        const rekognitionCollectionId = eventData.rekognitionCollectionId;
 
-      // Retrieve the Rekognition image ID from the response
-      const rekognitionImageId = rekognitionResponse.FaceRecords.length > 0
-        ? rekognitionResponse.FaceRecords[0].Face.ImageId
-        : undefined;
+        // Upload the image to the Rekognition collection
+        const { rekognition } = awsConfig;
+        const rekognitionParams = {
+            CollectionId: rekognitionCollectionId,
+            ExternalImageId: imageId,
+            DetectionAttributes: ['ALL'],
+            Image: {
+                Bytes: processedBuffer,
+            },
+        };
 
-      // Store the image URL in Firestore
-      const imageRef = `events/${eventId}/gallery/${imageId}`;
-      await eventRef.update({
-        regularGallery: admin.firestore.FieldValue.arrayUnion(imageRef),
-      });
+        const rekognitionResponse = await rekognition.indexFaces(rekognitionParams).promise();
 
-      // Upload the image to the regular S3 bucket
-      const regularS3BucketName = process.env.AWS_S3_RAW_BUCKET;
-      const regularS3Key = `events/${eventId}/gallery/${imageId}`;
+        // Retrieve the Rekognition image ID from the response
+        const rekognitionImageId = rekognitionResponse.FaceRecords.length > 0
+            ? rekognitionResponse.FaceRecords[0].Face.ImageId
+            : undefined;
 
-      // Determine the ContentType based on original or converted format
-      const contentType = imageFormat === 'raw' ? 'image/png' : file.mimetype;
+        // Store the image URL in Firestore
+        await eventRef.update({
+            regularGallery: admin.firestore.FieldValue.arrayUnion(imageRef),
+        });
 
-      const regularS3Params = {
-        Bucket: regularS3BucketName,
-        Key: regularS3Key,
-        Body: processedBuffer,
-        ContentEncoding: 'base64',
-        ContentType: contentType,
-        CacheControl: 'public, max-age=31536000',
-      };
+        // Upload the image to the regular S3 bucket
+        const regularS3BucketName = process.env.AWS_S3_RAW_BUCKET;
+        const regularS3Key = `events/${eventId}/gallery/${imageId}`;
 
-      await s3.upload(regularS3Params).promise();
+        // Determine the ContentType based on original or converted format
+        const contentType = imageFormat === 'raw' ? 'image/png' : file.mimetype;
 
-      return rekognitionImageId;
+        const regularS3Params = {
+            Bucket: regularS3BucketName,
+            Key: regularS3Key,
+            Body: processedBuffer,
+            ContentEncoding: 'base64',
+            ContentType: contentType,
+            CacheControl: 'public, max-age=31536000',
+        };
+
+        await s3.upload(regularS3Params).promise();
+
+        return rekognitionImageId;
     } catch (error) {
-      console.error('Error uploading gallery image:', error);
-      throw error;
+        console.error('Error uploading gallery image:', error);
+        throw error;
     }
 }
+
 
   static async createEvent(eventName, eventDateTime, eventLocation, coverPhoto, creatorId) {
     try {
