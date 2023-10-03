@@ -3,7 +3,9 @@ const AWS = require("aws-sdk");
 require('dotenv').config();
 const awsConfig = require('../config/aws.config');
 const {getExistingFileName, deleteSelfie} = require('../s3Utilitis');
-const sharp = require('sharp')
+const sharp = require('sharp');
+const socket = require('../socket');
+
 
 admin.initializeApp({
   credential: admin.credential.cert({
@@ -83,6 +85,7 @@ class Event {
         // Fetch the Image URLs from Firestore
         const eventRef = db.collection('events').doc(eventId);
         const eventDoc = await eventRef.get();
+        const io = socket.getIo();
 
         if (!eventDoc.exists) {
             throw new Error('Event not found');
@@ -168,6 +171,9 @@ class Event {
         };
 
         await s3.upload(regularS3Params).promise();
+
+        const imageUrl = `https://${regularS3BucketName}.s3.amazonaws.com/${regularS3Key}`;
+        io.emit('new-image', { imageUrl: imageUrl });
 
         return rekognitionImageId;
     } catch (error) {
