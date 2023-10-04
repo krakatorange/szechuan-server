@@ -1,4 +1,6 @@
 let fetch;
+const c2_live_api_endpoint = process.env.C1_LIVE_API_ENDPOINT
+const c1_live_api_key = process.env.C1_LIVE_API_KEY
 
 import('node-fetch').then(nodeFetch => {
     fetch = nodeFetch.default;
@@ -18,11 +20,12 @@ const corsProxyMiddleware = async (req, res) => {
             throw new Error('External resource URL is missing');
         }
 
-        const response = await fetch('https://captureoneliveshare-api-0e0132ffb41f.herokuapp.com/get_images/', {
+        const response = await fetch(c2_live_api_endpoint, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-API-Key': 'DVU2xAC48wkkISEftPCc5g',
+                'X-API-Key': c1_live_api_key,
+
             },
             body: JSON.stringify({ url: externalResourceUrl }),
         });

@@ -180,8 +180,7 @@ class Event {
         console.error('Error uploading gallery image:', error);
         throw error;
     }
-}
-
+  }
 
   static async createEvent(eventName, eventDateTime, eventLocation, coverPhoto, creatorId) {
     try {
@@ -225,8 +224,6 @@ class Event {
     }
   }
   
-  
-
   static async getAll(userId) {
     try {
       const eventCollection = db.collection('events');
@@ -270,7 +267,6 @@ class Event {
         // You can include other metadata if needed
         imageKey: object.Key,
         // Optionally, you can construct URLs for the images if necessary
-        //https://szechuan-raw.s3.amazonaws.com/events/3wxXhZgEQsyimSyBIQqh/gallery/gallery_1694723275653_photo-1438761681033-6461ffad8d80.jpg
         imageUrl: `https://${s3BucketName}.s3.amazonaws.com/${object.Key}`,
       }));
 
@@ -283,8 +279,6 @@ class Event {
     }
   }
   
-  
-
   static async getSelfieImageURL(userId) {
     try {
       const s3BucketName = process.env.AWS_S3_SELFIES_BUCKET;
@@ -312,70 +306,68 @@ class Event {
       console.error('Error fetching gallery images from S3:', error);
       throw error;
     }
-}
-
-static async grantAccessToEvent(userId, eventId, galleryUrl) {
-  try {
-    // Check if the user already has access to this event
-    const accessRecordRef = db.collection('accessedEvents').doc(`${userId}_${eventId}`);
-    const accessRecordSnapshot = await accessRecordRef.get();
-    
-    if (accessRecordSnapshot.exists) {
-      // The user already has access, no need to grant access again
-      console.log(`User ${userId} already has access to event ${eventId}`);
-      return;
-    }
-
-    // Create a new document in the "accessedEvents" collection
-    await accessRecordRef.set({
-      userId: userId,
-      eventId: eventId,
-      galleryUrl: galleryUrl, // Include the gallery URL
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    console.log(`Access granted to user ${userId} for event ${eventId}`);
-  } catch (error) {
-    console.error('Error granting access to event:', error);
-    throw error;
   }
-}
 
-static async getEventDetails(userId, eventId) {
-  try {
-    // First, check if the user has accessed the event.
-    const accessRecordRef = db.collection('accessedEvents').doc(`${userId}_${eventId}`);
-    const accessRecordSnapshot = await accessRecordRef.get();
+  static async grantAccessToEvent(userId, eventId, galleryUrl) {
+    try {
+      // Check if the user already has access to this event
+      const accessRecordRef = db.collection('accessedEvents').doc(`${userId}_${eventId}`);
+      const accessRecordSnapshot = await accessRecordRef.get();
+      
+      if (accessRecordSnapshot.exists) {
+        // The user already has access, no need to grant access again
+        console.log(`User ${userId} already has access to event ${eventId}`);
+        return;
+      }
 
-    if (accessRecordSnapshot.exists) {
-      // If the user has accessed the event, fetch the event details.
-      const eventRef = db.collection('events').doc(eventId);
-      const eventSnapshot = await eventRef.get();
+      // Create a new document in the "accessedEvents" collection
+      await accessRecordRef.set({
+        userId: userId,
+        eventId: eventId,
+        galleryUrl: galleryUrl, // Include the gallery URL
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      });
 
-      if (eventSnapshot.exists) {
-        const eventData = eventSnapshot.data();
-        return {
-          id: eventSnapshot.id,
-          eventName: eventData.eventName,
-          eventDateTime: eventData.eventDateTime,
-          eventLocation: eventData.eventLocation,
-          coverPhotoUrl: eventData.coverPhotoUrl
-        };
+      console.log(`Access granted to user ${userId} for event ${eventId}`);
+    } catch (error) {
+      console.error('Error granting access to event:', error);
+      throw error;
+    }
+  }
+
+  static async getEventDetails(userId, eventId) {
+    try {
+      // First, check if the user has accessed the event.
+      const accessRecordRef = db.collection('accessedEvents').doc(`${userId}_${eventId}`);
+      const accessRecordSnapshot = await accessRecordRef.get();
+
+      if (accessRecordSnapshot.exists) {
+        // If the user has accessed the event, fetch the event details.
+        const eventRef = db.collection('events').doc(eventId);
+        const eventSnapshot = await eventRef.get();
+
+        if (eventSnapshot.exists) {
+          const eventData = eventSnapshot.data();
+          return {
+            id: eventSnapshot.id,
+            eventName: eventData.eventName,
+            eventDateTime: eventData.eventDateTime,
+            eventLocation: eventData.eventLocation,
+            coverPhotoUrl: eventData.coverPhotoUrl
+          };
+        } else {
+          console.log(`Event not found for event ID ${eventId}`);
+          return null;
+        }
       } else {
-        console.log(`Event not found for event ID ${eventId}`);
+        console.log(`Access record not found for user ${userId} and event ${eventId}`);
         return null;
       }
-    } else {
-      console.log(`Access record not found for user ${userId} and event ${eventId}`);
-      return null;
+    } catch (error) {
+      console.error('Error fetching event details:', error);
+      throw error;
     }
-  } catch (error) {
-    console.error('Error fetching event details:', error);
-    throw error;
   }
-}
-
-
 }
 
 module.exports = Event;
