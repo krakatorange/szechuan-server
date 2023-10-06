@@ -100,7 +100,7 @@ class Event {
 
         if (galleryImages.includes(imageRef)) {
             // Image already exists, return or throw an error
-            throw new Error('Image already exists in the gallery.');
+            console.log('Image already exists in the gallery.');
         }
 
         // Process the image
