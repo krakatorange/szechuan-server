@@ -3,7 +3,9 @@ const AWS = require("aws-sdk");
 require('dotenv').config();
 const awsConfig = require('../config/aws.config');
 const {getExistingFileName, deleteSelfie} = require('../s3Utilitis');
-const sharp = require('sharp')
+const sharp = require('sharp');
+const socket = require('../socket');
+
 
 admin.initializeApp({
   credential: admin.credential.cert({
@@ -78,95 +80,107 @@ class Event {
     }
   }
 
-static async uploadGalleryImage(eventId, file) {
+  static async uploadGalleryImage(eventId, file) {
     try {
-      let processedBuffer;
-      const imageFormat = file.mimetype.split('/')[1]; // e.g., "jpeg", "png", "raw", etc.
+        // Fetch the Image URLs from Firestore
+        const eventRef = db.collection('events').doc(eventId);
+        const eventDoc = await eventRef.get();
+        const io = socket.getIo();
 
-      switch (imageFormat) {
-        case 'jpeg':
-          processedBuffer = await sharp(file.buffer)
-            .rotate()  // Automatically rotate based on EXIF
-            .jpeg({ quality: 90 })
-            .toBuffer();
-          break;
-        case 'png':
-          processedBuffer = await sharp(file.buffer)
-            .rotate()  // Automatically rotate based on EXIF
-            .png({ quality: 90 })
-            .toBuffer();
-          break;
-        default:
-          // For raw or other formats, convert to PNG
-          processedBuffer = await sharp(file.buffer)
-            .rotate()  // Automatically rotate based on EXIF
-            .png()
-            .toBuffer();
-          break;
-      }
+        if (!eventDoc.exists) {
+            throw new Error('Event not found');
+        }
 
-      // Determine the Rekognition collection ID from the event document
-      const eventRef = db.collection('events').doc(eventId);
-      const eventDoc = await eventRef.get();
+        const eventData = eventDoc.data();
+        const galleryImages = eventData.regularGallery || []; // Assuming `regularGallery` is an array of image URLs.
 
-      if (!eventDoc.exists) {
-        throw new Error('Event not found');
-      }
+        // Check against the Current Image
+        const imageId = `gallery_${file.originalname}`;
+        const imageRef = `events/${eventId}/gallery/${imageId}`;
 
-      const eventData = eventDoc.data();
-      const rekognitionCollectionId = eventData.rekognitionCollectionId;
+        if (galleryImages.includes(imageRef)) {
+            // Image already exists, return or throw an error
+            console.log('Image already exists in the gallery.');
+        }
 
-      // Create a unique image ID for Rekognition
-      const imageId = `gallery_${Date.now()}_${file.originalname}`;
+        // Process the image
+        let processedBuffer;
+        const imageFormat = file.mimetype.split('/')[1]; 
 
-      // Upload the image to the Rekognition collection
-      const { rekognition } = awsConfig;
-      const rekognitionParams = {
-        CollectionId: rekognitionCollectionId,
-        ExternalImageId: imageId,
-        DetectionAttributes: ['ALL'],
-        Image: {
-          Bytes: processedBuffer,
-        },
-      };
+        switch (imageFormat) {
+            case 'jpeg':
+                processedBuffer = await sharp(file.buffer)
+                    .rotate()  
+                    .jpeg({ quality: 90 })
+                    .toBuffer();
+                break;
+            case 'png':
+                processedBuffer = await sharp(file.buffer)
+                    .rotate()  
+                    .png({ quality: 90 })
+                    .toBuffer();
+                break;
+            default:
+                processedBuffer = await sharp(file.buffer)
+                    .rotate()  
+                    .png()
+                    .toBuffer();
+                break;
+        }
 
-      const rekognitionResponse = await rekognition.indexFaces(rekognitionParams).promise();
+        // Determine the Rekognition collection ID from the event document
+        const rekognitionCollectionId = eventData.rekognitionCollectionId;
 
-      // Retrieve the Rekognition image ID from the response
-      const rekognitionImageId = rekognitionResponse.FaceRecords.length > 0
-        ? rekognitionResponse.FaceRecords[0].Face.ImageId
-        : undefined;
+        // Upload the image to the Rekognition collection
+        const { rekognition } = awsConfig;
+        const rekognitionParams = {
+            CollectionId: rekognitionCollectionId,
+            ExternalImageId: imageId,
+            DetectionAttributes: ['ALL'],
+            Image: {
+                Bytes: processedBuffer,
+            },
+        };
 
-      // Store the image URL in Firestore
-      const imageRef = `events/${eventId}/gallery/${imageId}`;
-      await eventRef.update({
-        regularGallery: admin.firestore.FieldValue.arrayUnion(imageRef),
-      });
+        const rekognitionResponse = await rekognition.indexFaces(rekognitionParams).promise();
 
-      // Upload the image to the regular S3 bucket
-      const regularS3BucketName = process.env.AWS_S3_RAW_BUCKET;
-      const regularS3Key = `events/${eventId}/gallery/${imageId}`;
+        // Retrieve the Rekognition image ID from the response
+        const rekognitionImageId = rekognitionResponse.FaceRecords.length > 0
+            ? rekognitionResponse.FaceRecords[0].Face.ImageId
+            : undefined;
 
-      // Determine the ContentType based on original or converted format
-      const contentType = imageFormat === 'raw' ? 'image/png' : file.mimetype;
+        // Store the image URL in Firestore
+        await eventRef.update({
+            regularGallery: admin.firestore.FieldValue.arrayUnion(imageRef),
+        });
 
-      const regularS3Params = {
-        Bucket: regularS3BucketName,
-        Key: regularS3Key,
-        Body: processedBuffer,
-        ContentEncoding: 'base64',
-        ContentType: contentType,
-        CacheControl: 'public, max-age=31536000',
-      };
+        // Upload the image to the regular S3 bucket
+        const regularS3BucketName = process.env.AWS_S3_RAW_BUCKET;
+        const regularS3Key = `events/${eventId}/gallery/${imageId}`;
 
-      await s3.upload(regularS3Params).promise();
+        // Determine the ContentType based on original or converted format
+        const contentType = imageFormat === 'raw' ? 'image/png' : file.mimetype;
 
-      return rekognitionImageId;
+        const regularS3Params = {
+            Bucket: regularS3BucketName,
+            Key: regularS3Key,
+            Body: processedBuffer,
+            ContentEncoding: 'base64',
+            ContentType: contentType,
+            CacheControl: 'public, max-age=31536000',
+        };
+
+        await s3.upload(regularS3Params).promise();
+
+        const imageUrl = `https://${regularS3BucketName}.s3.amazonaws.com/${regularS3Key}`;
+        io.emit('new-image', { imageUrl: imageUrl });
+
+        return rekognitionImageId;
     } catch (error) {
-      console.error('Error uploading gallery image:', error);
-      throw error;
+        console.error('Error uploading gallery image:', error);
+        throw error;
     }
-}
+  }
 
   static async createEvent(eventName, eventDateTime, eventLocation, coverPhoto, creatorId) {
     try {
@@ -210,8 +224,6 @@ static async uploadGalleryImage(eventId, file) {
     }
   }
   
-  
-
   static async getAll(userId) {
     try {
       const eventCollection = db.collection('events');
@@ -255,7 +267,6 @@ static async uploadGalleryImage(eventId, file) {
         // You can include other metadata if needed
         imageKey: object.Key,
         // Optionally, you can construct URLs for the images if necessary
-        //https://szechuan-raw.s3.amazonaws.com/events/3wxXhZgEQsyimSyBIQqh/gallery/gallery_1694723275653_photo-1438761681033-6461ffad8d80.jpg
         imageUrl: `https://${s3BucketName}.s3.amazonaws.com/${object.Key}`,
       }));
 
@@ -268,8 +279,6 @@ static async uploadGalleryImage(eventId, file) {
     }
   }
   
-  
-
   static async getSelfieImageURL(userId) {
     try {
       const s3BucketName = process.env.AWS_S3_SELFIES_BUCKET;
@@ -297,70 +306,68 @@ static async uploadGalleryImage(eventId, file) {
       console.error('Error fetching gallery images from S3:', error);
       throw error;
     }
-}
-
-static async grantAccessToEvent(userId, eventId, galleryUrl) {
-  try {
-    // Check if the user already has access to this event
-    const accessRecordRef = db.collection('accessedEvents').doc(`${userId}_${eventId}`);
-    const accessRecordSnapshot = await accessRecordRef.get();
-    
-    if (accessRecordSnapshot.exists) {
-      // The user already has access, no need to grant access again
-      console.log(`User ${userId} already has access to event ${eventId}`);
-      return;
-    }
-
-    // Create a new document in the "accessedEvents" collection
-    await accessRecordRef.set({
-      userId: userId,
-      eventId: eventId,
-      galleryUrl: galleryUrl, // Include the gallery URL
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    console.log(`Access granted to user ${userId} for event ${eventId}`);
-  } catch (error) {
-    console.error('Error granting access to event:', error);
-    throw error;
   }
-}
 
-static async getEventDetails(userId, eventId) {
-  try {
-    // First, check if the user has accessed the event.
-    const accessRecordRef = db.collection('accessedEvents').doc(`${userId}_${eventId}`);
-    const accessRecordSnapshot = await accessRecordRef.get();
+  static async grantAccessToEvent(userId, eventId, galleryUrl) {
+    try {
+      // Check if the user already has access to this event
+      const accessRecordRef = db.collection('accessedEvents').doc(`${userId}_${eventId}`);
+      const accessRecordSnapshot = await accessRecordRef.get();
+      
+      if (accessRecordSnapshot.exists) {
+        // The user already has access, no need to grant access again
+        console.log(`User ${userId} already has access to event ${eventId}`);
+        return;
+      }
 
-    if (accessRecordSnapshot.exists) {
-      // If the user has accessed the event, fetch the event details.
-      const eventRef = db.collection('events').doc(eventId);
-      const eventSnapshot = await eventRef.get();
+      // Create a new document in the "accessedEvents" collection
+      await accessRecordRef.set({
+        userId: userId,
+        eventId: eventId,
+        galleryUrl: galleryUrl, // Include the gallery URL
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      });
 
-      if (eventSnapshot.exists) {
-        const eventData = eventSnapshot.data();
-        return {
-          id: eventSnapshot.id,
-          eventName: eventData.eventName,
-          eventDateTime: eventData.eventDateTime,
-          eventLocation: eventData.eventLocation,
-          coverPhotoUrl: eventData.coverPhotoUrl
-        };
+      console.log(`Access granted to user ${userId} for event ${eventId}`);
+    } catch (error) {
+      console.error('Error granting access to event:', error);
+      throw error;
+    }
+  }
+
+  static async getEventDetails(userId, eventId) {
+    try {
+      // First, check if the user has accessed the event.
+      const accessRecordRef = db.collection('accessedEvents').doc(`${userId}_${eventId}`);
+      const accessRecordSnapshot = await accessRecordRef.get();
+
+      if (accessRecordSnapshot.exists) {
+        // If the user has accessed the event, fetch the event details.
+        const eventRef = db.collection('events').doc(eventId);
+        const eventSnapshot = await eventRef.get();
+
+        if (eventSnapshot.exists) {
+          const eventData = eventSnapshot.data();
+          return {
+            id: eventSnapshot.id,
+            eventName: eventData.eventName,
+            eventDateTime: eventData.eventDateTime,
+            eventLocation: eventData.eventLocation,
+            coverPhotoUrl: eventData.coverPhotoUrl
+          };
+        } else {
+          console.log(`Event not found for event ID ${eventId}`);
+          return null;
+        }
       } else {
-        console.log(`Event not found for event ID ${eventId}`);
+        console.log(`Access record not found for user ${userId} and event ${eventId}`);
         return null;
       }
-    } else {
-      console.log(`Access record not found for user ${userId} and event ${eventId}`);
-      return null;
+    } catch (error) {
+      console.error('Error fetching event details:', error);
+      throw error;
     }
-  } catch (error) {
-    console.error('Error fetching event details:', error);
-    throw error;
   }
-}
-
-
 }
 
 module.exports = Event;

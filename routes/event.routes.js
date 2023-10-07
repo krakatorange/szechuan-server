@@ -3,7 +3,8 @@ const express = require('express');
 const router = express.Router();
 const eventController = require('../controller/event.controller');
 const detectFaceController = require('../controller/detectFaceController');
-const corsProxyMiddleware = require('../middleware/CorsUrlMiddleware')
+const corsProxyMiddleware = require('../middleware/CorsUrlMiddleware');
+const fetchImageMiddleware = require('../middleware/fetchImageMiddleware');
 const multer = require('multer');
 const storage = multer.memoryStorage(); // Store the file in memory as a buffer
 const upload = multer({ storage: storage });
@@ -19,5 +20,6 @@ router.get('/matched/:userId/:eventId', detectFaceController.getMatchedImages);
 router.post('/access/:eventId', eventController.grantAccessToEvent);
 router.get('/fetch-external-resource', corsProxyMiddleware);
 router.get('/getgallery/:userId/:eventId', eventController.getEventDetails);
+router.get('/fetch-image', fetchImageMiddleware);
 
 module.exports = router;
