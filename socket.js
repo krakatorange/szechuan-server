@@ -1,11 +1,12 @@
 const socketIo = require('socket.io');
 
 let io;
+const origin_url = process.env.ORIGIN_URL
 
 exports.socketInit = (server) => {
   io = socketIo(server, {
     cors: {
-      origin: "http://localhost:3000", // This is your client's origin. Adjust if necessary.
+      origin: origin_url, // This is your client's origin. Adjust if necessary.
       methods: ["GET", "POST"],
       credentials: true
     }
