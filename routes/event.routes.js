@@ -21,5 +21,6 @@ router.post('/access/:eventId', eventController.grantAccessToEvent);
 router.get('/fetch-external-resource', corsProxyMiddleware);
 router.get('/getgallery/:userId/:eventId', eventController.getEventDetails);
 router.get('/fetch-image', fetchImageMiddleware);
+router.delete('/:eventId/gallery/:imageId', eventController.deleteGalleryImage);
 
 module.exports = router;
