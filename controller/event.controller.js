@@ -138,26 +138,29 @@ const eventController = {
       res.status(500).json({ error: "Internal server error" });
     }
   },
-  getEventDetails: async (req, res) => {
+  getUserEvents: async (req, res) => {
     try {
-      const { userId, eventId } = req.params;
-
-      if (!userId || !eventId) {
-        return res.status(400).json({ error: "Missing userId and eventId" });
+      const { userId } = req.params; // We'll only need userId to fetch all events for a user
+  
+      if (!userId) {
+        return res.status(400).json({ error: "Missing userId" });
       }
-
-      const eventDetails = await Event.getEventDetails(userId, eventId);
-
-      if (eventDetails) {
-        res.status(200).json(eventDetails); // return the whole event details
+  
+      // Fetch events using the new model method
+      const userEvents = await Event.getUserEvents(userId);
+  
+      // Check if any events were found
+      if (userEvents.length > 0) {
+        res.status(200).json(userEvents); // return the array of events
       } else {
-        res.status(404).json({ error: "Event details not found" });
+        res.status(404).json({ message: "No events found for this user" });
       }
     } catch (error) {
-      console.error("Error fetching event details:", error);
+      console.error("Error fetching user events:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   },
+  
 
   deleteGalleryImage: async (req, res) => {
     try {

@@ -360,43 +360,50 @@ class Event {
     }
   }
 
-  static async getEventDetails(userId, eventId) {
+  static async getUserEvents(userId) {
     try {
-      // First, check if the user has accessed the event.
-      const accessRecordRef = db
-        .collection("accessedEvents")
-        .doc(`${userId}_${eventId}`);
-      const accessRecordSnapshot = await accessRecordRef.get();
-
-      if (accessRecordSnapshot.exists) {
-        // If the user has accessed the event, fetch the event details.
-        const eventRef = db.collection("events").doc(eventId);
-        const eventSnapshot = await eventRef.get();
-
-        if (eventSnapshot.exists) {
-          const eventData = eventSnapshot.data();
-          return {
-            id: eventSnapshot.id,
-            eventName: eventData.eventName,
-            eventDateTime: eventData.eventDateTime,
-            eventLocation: eventData.eventLocation,
-            coverPhotoUrl: eventData.coverPhotoUrl,
-          };
-        } else {
-          console.log(`Event not found for event ID ${eventId}`);
-          return null;
+      const userEventsQuerySnapshot = await db.collection("accessedEvents")
+        .where("userId", "==", userId)
+        .get();
+  
+      // Check if the query returned any documents
+      if (!userEventsQuerySnapshot.empty) {
+        const events = [];
+  
+        // Iterate over each document and fetch the event details
+        for (const doc of userEventsQuerySnapshot.docs) {
+          const eventId = doc.id.split('_')[1]; // Assuming the document ID is in the format 'userId_eventId'
+  
+          const eventRef = db.collection("events").doc(eventId);
+          const eventSnapshot = await eventRef.get();
+  
+          if (eventSnapshot.exists) {
+            const eventData = eventSnapshot.data();
+            console.log(eventData); // Log the event data
+            events.push({
+              id: eventSnapshot.id,
+              eventName: eventData.eventName,
+              eventDateTime: eventData.eventDateTime,
+              eventLocation: eventData.eventLocation,
+              coverPhotoUrl: eventData.coverPhotoUrl,
+            });
+          } else {
+            console.log(`No event found for eventId: ${eventId}`); // Log when no event is found
+          }
         }
+  
+        return events; // Return an array of events
       } else {
-        console.log(
-          `Access record not found for user ${userId} and event ${eventId}`
-        );
-        return null;
+        console.log(`No accessed events found for user ${userId}`);
+        return [];
       }
     } catch (error) {
-      console.error("Error fetching event details:", error);
+      console.error("Error fetching user events:", error);
       throw error;
     }
   }
+  
+  
 
   static async deleteGalleryImage(eventId, imageId) {
     try {
