@@ -19,7 +19,7 @@ router.post('/detect-face', detectFaceController.detectFace);
 router.get('/matched/:userId/:eventId', detectFaceController.getMatchedImages);
 router.post('/access/:eventId', eventController.grantAccessToEvent);
 router.get('/fetch-external-resource', corsProxyMiddleware);
-router.get('/getgallery/:userId/:eventId', eventController.getEventDetails);
+router.get('/getgallery/:userId', eventController.getUserEvents);
 router.get('/fetch-image', fetchImageMiddleware);
 router.delete('/:eventId/gallery/:imageId', eventController.deleteGalleryImage);
 
