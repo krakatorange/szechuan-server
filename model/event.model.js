@@ -103,7 +103,7 @@ class Event {
 
       if (galleryImages.includes(imageRef)) {
         // Image already exists, return or throw an error
-        console.log("Image already exists in the gallery.");
+        throw error("Image already exists in the gallery.");
       }
 
       // Process the image
@@ -379,14 +379,19 @@ class Event {
   
           if (eventSnapshot.exists) {
             const eventData = eventSnapshot.data();
-            console.log(eventData); // Log the event data
-            events.push({
-              id: eventSnapshot.id,
-              eventName: eventData.eventName,
-              eventDateTime: eventData.eventDateTime,
-              eventLocation: eventData.eventLocation,
-              coverPhotoUrl: eventData.coverPhotoUrl,
-            });
+  
+            // Check if the event's creatorId does not match the userId
+            if (eventData.creatorId !== userId) {
+              events.push({
+                id: eventSnapshot.id,
+                eventName: eventData.eventName,
+                eventDateTime: eventData.eventDateTime,
+                eventLocation: eventData.eventLocation,
+                coverPhotoUrl: eventData.coverPhotoUrl,
+              });
+            } else {
+              console.log(`Event with eventId: ${eventId} was created by the user and hence not added.`);
+            }
           } else {
             console.log(`No event found for eventId: ${eventId}`); // Log when no event is found
           }
@@ -402,6 +407,7 @@ class Event {
       throw error;
     }
   }
+  
   
   
 
