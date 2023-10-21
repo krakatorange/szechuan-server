@@ -350,6 +350,7 @@ class Event {
 
   
   static async getUserAndAccessedEvents(userId) {
+    const io = socket.getIo();
     try {
       const events = [];
 
@@ -412,6 +413,8 @@ class Event {
           }
         }
       });
+
+      io.emit("eventsData", { userId, events });
 
       return events;
     } catch (error) {
