@@ -90,17 +90,6 @@ const eventController = {
     }
   },
 
-  getAllEvents: async (req, res) => {
-    try {
-      const userId = req.params.userId; // Get the user ID from the URL parameters
-      const events = await Event.getAll(userId);
-
-      return res.status(200).json(events);
-    } catch (error) {
-      console.error("Error:", error);
-      return res.status(500).json({ error: "An error occurred" });
-    }
-  },
 
   getSelfieImageURL: async (req, res) => {
     try {
@@ -138,25 +127,25 @@ const eventController = {
       res.status(500).json({ error: "Internal server error" });
     }
   },
-  getUserEvents: async (req, res) => {
+  getUserAndAccessedEvents: async (req, res) => {
     try {
-      const { userId } = req.params; // We'll only need userId to fetch all events for a user
-  
+      const { userId } = req.params; // Extract the userId from URL parameters
+
       if (!userId) {
-        return res.status(400).json({ error: "Missing userId" });
+        return res.status(400).json({ error: "User ID is required" });
       }
-  
-      // Fetch events using the new model method
-      const userEvents = await Event.getUserEvents(userId);
-  
+
+      // Fetch events using the new combined method
+      const userAndAccessedEvents = await Event.getUserAndAccessedEvents(userId);
+
       // Check if any events were found
-      if (userEvents.length > 0) {
-        res.status(200).json(userEvents); // return the array of events
+      if (userAndAccessedEvents.length > 0) {
+        res.status(200).json(userAndAccessedEvents); // return the array of events
       } else {
         res.status(404).json({ message: "No events found for this user" });
       }
     } catch (error) {
-      console.error("Error fetching user events:", error);
+      console.error("Error fetching user and accessed events:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   },

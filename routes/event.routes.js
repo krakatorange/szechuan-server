@@ -10,7 +10,7 @@ const storage = multer.memoryStorage(); // Store the file in memory as a buffer
 const upload = multer({ storage: storage });
 
 router.post('/create', upload.single('coverPhoto'), eventController.createEvent);
-router.get('/all/:userId', eventController.getAllEvents);
+router.get('/all/:userId', eventController.getUserAndAccessedEvents);
 router.post('/:eventId/upload', upload.single('galleryImage'), eventController.uploadGalleryImage);
 router.get('/:eventId/gallery', eventController.getGalleryImages);
 router.post('/:userId/selfie', upload.single('selfieImage'), eventController.uploadSelfie);
@@ -19,7 +19,6 @@ router.post('/detect-face', detectFaceController.detectFace);
 router.get('/matched/:userId/:eventId', detectFaceController.getMatchedImages);
 router.post('/access/:eventId', eventController.grantAccessToEvent);
 router.get('/fetch-external-resource', corsProxyMiddleware);
-router.get('/getgallery/:userId', eventController.getUserEvents);
 router.get('/fetch-image', fetchImageMiddleware);
 router.delete('/:eventId/gallery/:imageId', eventController.deleteGalleryImage);
 router.delete('/event/:eventId', eventController.deleteEvent);

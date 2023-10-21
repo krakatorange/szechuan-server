@@ -199,6 +199,7 @@ class Event {
     coverPhoto,
     creatorId
   ) {
+    const io = socket.getIo();
     try {
       const coverPhotoUrl = await this.uploadCoverPhoto(coverPhoto);
 
@@ -251,32 +252,6 @@ class Event {
       return eventId;
     } catch (error) {
       console.error("Error creating event:", error);
-      throw error;
-    }
-  }
-
-  static async getAll(userId) {
-    try {
-      const eventCollection = db.collection("events");
-      const snapshot = await eventCollection
-        .where("creatorId", "==", userId)
-        .get();
-      const events = [];
-
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        events.push({
-          id: doc.id,
-          eventName: data.eventName,
-          eventDateTime: data.eventDateTime,
-          eventLocation: data.eventLocation,
-          coverPhotoUrl: data.coverPhotoUrl,
-        });
-      });
-
-      return events;
-    } catch (error) {
-      console.error("Error fetching events by user:", error);
       throw error;
     }
   }
@@ -342,6 +317,7 @@ class Event {
   }
 
   static async grantAccessToEvent(userId, eventId, galleryUrl) {
+    const io = socket.getIo();
     try {
       // Check if the user already has access to this event
       const accessRecordRef = db
@@ -372,111 +348,80 @@ class Event {
     }
   }
 
-  static async getUserEvents(userId) {
+  
+  static async getUserAndAccessedEvents(userId) {
     try {
-      const userEventsQuerySnapshot = await db
+      const events = [];
+
+      // Create promises for both queries
+      const createdEventsPromise = db
+        .collection("events")
+        .where("creatorId", "==", userId)
+        .get();
+      const accessedEventsPromise = db
         .collection("accessedEvents")
         .where("userId", "==", userId)
         .get();
 
-      // Check if the query returned any documents
-      if (!userEventsQuerySnapshot.empty) {
-        const events = [];
+      // Use Promise.all to run both queries in parallel
+      const [createdEventsSnapshot, accessedEventsSnapshot] = await Promise.all(
+        [createdEventsPromise, accessedEventsPromise]
+      );
 
-        // Iterate over each document and fetch the event details
-        for (const doc of userEventsQuerySnapshot.docs) {
-          const eventId = doc.id.split("_")[1]; // Assuming the document ID is in the format 'userId_eventId'
+      // Process the snapshot for created events
+      createdEventsSnapshot.forEach((doc) => {
+        const data = doc.data();
+        events.push({
+          id: doc.id,
+          eventName: data.eventName,
+          eventDateTime: data.eventDateTime,
+          eventLocation: data.eventLocation,
+          coverPhotoUrl: data.coverPhotoUrl,
+          isCreatedByUser: true, // flag indicating this is a created event
+        });
+      });
 
-          const eventRef = db.collection("events").doc(eventId);
-          const eventSnapshot = await eventRef.get();
+      // Process the snapshot for accessed events
+      // First, gather all eventIds
+      const eventIds = accessedEventsSnapshot.docs.map(
+        (doc) => doc.id.split("_")[1]
+      ); // Assuming the doc ID is 'userId_eventId'
 
-          if (eventSnapshot.exists) {
-            const eventData = eventSnapshot.data();
+      // Then, fetch all events in a single batch query
+      const eventsRef = db.collection("events");
+      const eventSnapshotsPromises = eventIds.map((eventId) =>
+        eventsRef.doc(eventId).get()
+      );
+      const eventSnapshots = await Promise.all(eventSnapshotsPromises);
 
-            // Check if the event's creatorId does not match the userId
-            if (eventData.creatorId !== userId) {
-              events.push({
-                id: eventSnapshot.id,
-                eventName: eventData.eventName,
-                eventDateTime: eventData.eventDateTime,
-                eventLocation: eventData.eventLocation,
-                coverPhotoUrl: eventData.coverPhotoUrl,
-              });
-            } else {
-              console.log(
-                `Event with eventId: ${eventId} was created by the user and hence not added.`
-              );
-            }
-          } else {
-            console.log(`No event found for eventId: ${eventId}`); // Log when no event is found
+      // Finally, process the fetched event snapshots
+      eventSnapshots.forEach((eventSnapshot) => {
+        if (eventSnapshot.exists) {
+          const eventData = eventSnapshot.data();
+
+          // If the event's creatorId doesn't match the userId, add the event
+          if (eventData.creatorId !== userId) {
+            events.push({
+              id: eventSnapshot.id,
+              eventName: eventData.eventName,
+              eventDateTime: eventData.eventDateTime,
+              eventLocation: eventData.eventLocation,
+              coverPhotoUrl: eventData.coverPhotoUrl,
+              isCreatedByUser: false, // flag indicating this is an accessed event
+            });
           }
         }
-
-        return events; // Return an array of events
-      } else {
-        console.log(`No accessed events found for user ${userId}`);
-        return [];
-      }
-    } catch (error) {
-      console.error("Error fetching user events:", error);
-      throw error;
-    }
-  }
-
-  static async deleteGalleryImage(eventId, imageId) {
-    try {
-      // Fetch the event document
-      const eventRef = db.collection("events").doc(eventId);
-      const eventDoc = await eventRef.get();
-
-      if (!eventDoc.exists) {
-        throw new Error("Event not found");
-      }
-
-      const eventData = eventDoc.data();
-      const rekognitionIds = eventData.rekognitionIds || [];
-
-      // For this example, we're assuming that the rekognition ID corresponds to the image ID.
-      // If this isn't the case, you'll need to have a way to map from the image ID to the rekognition ID.
-      const rekognitionImageId = rekognitionIds.find((id) => id === imageId);
-
-      // If rekognitionImageId exists, then proceed with Rekognition deletion
-      if (rekognitionImageId) {
-        // Determine the Rekognition collection ID from the event document
-        const rekognitionCollectionId = eventData.rekognitionCollectionId;
-
-        // Delete the face from AWS Rekognition
-        const { rekognition } = awsConfig;
-        const rekognitionParams = {
-          CollectionId: rekognitionCollectionId,
-          FaceIds: [rekognitionImageId],
-        };
-
-        await rekognition.deleteFaces(rekognitionParams).promise();
-      }
-
-      // Delete the image from the S3 bucket
-      const regularS3BucketName = process.env.AWS_S3_RAW_BUCKET;
-      const regularS3Key = `events/${eventId}/gallery/${imageId}`;
-
-      const s3DeleteParams = {
-        Bucket: regularS3BucketName,
-        Key: regularS3Key,
-      };
-
-      await s3.deleteObject(s3DeleteParams).promise();
-
-      // Remove the image URL from Firestore
-      await eventRef.update({
-        regularGallery: admin.firestore.FieldValue.arrayRemove(regularS3Key),
       });
+
+      return events;
     } catch (error) {
-      console.error("Error deleting gallery image:", error);
+      console.error("Error fetching user and accessed events:", error);
       throw error;
     }
   }
 
   static async deleteEvent(eventId) {
+    const io = socket.getIo();
     try {
       // Fetch the event document
       const eventRef = db.collection("events").doc(eventId);
@@ -537,6 +482,59 @@ class Event {
       io.emit("event-deleted", { eventId });
     } catch (error) {
       console.error("Error deleting event:", error);
+      throw error;
+    }
+  }
+
+  static async deleteGalleryImage(eventId, imageId) {
+    try {
+      // Fetch the event document
+      const eventRef = db.collection("events").doc(eventId);
+      const eventDoc = await eventRef.get();
+
+      if (!eventDoc.exists) {
+        throw new Error("Event not found");
+      }
+
+      const eventData = eventDoc.data();
+      const rekognitionIds = eventData.rekognitionIds || [];
+
+      // For this example, we're assuming that the rekognition ID corresponds to the image ID.
+      // If this isn't the case, you'll need to have a way to map from the image ID to the rekognition ID.
+      const rekognitionImageId = rekognitionIds.find((id) => id === imageId);
+
+      // If rekognitionImageId exists, then proceed with Rekognition deletion
+      if (rekognitionImageId) {
+        // Determine the Rekognition collection ID from the event document
+        const rekognitionCollectionId = eventData.rekognitionCollectionId;
+
+        // Delete the face from AWS Rekognition
+        const { rekognition } = awsConfig;
+        const rekognitionParams = {
+          CollectionId: rekognitionCollectionId,
+          FaceIds: [rekognitionImageId],
+        };
+
+        await rekognition.deleteFaces(rekognitionParams).promise();
+      }
+
+      // Delete the image from the S3 bucket
+      const regularS3BucketName = process.env.AWS_S3_RAW_BUCKET;
+      const regularS3Key = `events/${eventId}/gallery/${imageId}`;
+
+      const s3DeleteParams = {
+        Bucket: regularS3BucketName,
+        Key: regularS3Key,
+      };
+
+      await s3.deleteObject(s3DeleteParams).promise();
+
+      // Remove the image URL from Firestore
+      await eventRef.update({
+        regularGallery: admin.firestore.FieldValue.arrayRemove(regularS3Key),
+      });
+    } catch (error) {
+      console.error("Error deleting gallery image:", error);
       throw error;
     }
   }
