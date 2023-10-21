@@ -180,5 +180,25 @@ const eventController = {
       return res.status(500).json({ error: "An error occurred" });
     }
   },
+
+  deleteEvent: async (req, res) => {
+    try {
+      const { eventId } = req.params; // Extract event ID from URL parameters
+
+      if (!eventId) {
+        return res.status(400).json({ error: "Event ID is required" });
+      }
+
+      // Call the deleteEvent method from your Event model
+      await Event.deleteEvent(eventId);
+
+      return res
+        .status(200)
+        .json({ message: "Event deleted successfully" });
+    } catch (error) {
+      console.error("Error:", error);
+      return res.status(500).json({ error: "An error occurred while deleting the event" });
+    }
+  },
 };
 module.exports = eventController;

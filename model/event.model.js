@@ -238,6 +238,16 @@ class Event {
       });
 
       console.log("Event created successfully");
+      // Inside your createEvent method, after the event is successfully created
+      io.emit("event-created", {
+        eventId,
+        eventName,
+        eventDateTime,
+        eventLocation,
+        coverPhotoUrl,
+        creatorId,
+      });
+
       return eventId;
     } catch (error) {
       console.error("Error creating event:", error);
@@ -354,6 +364,8 @@ class Event {
       });
 
       console.log(`Access granted to user ${userId} for event ${eventId}`);
+      // Inside your grantAccessToEvent method, after access is successfully granted
+      io.emit("access-granted", { userId, eventId, galleryUrl });
     } catch (error) {
       console.error("Error granting access to event:", error);
       throw error;
@@ -362,24 +374,25 @@ class Event {
 
   static async getUserEvents(userId) {
     try {
-      const userEventsQuerySnapshot = await db.collection("accessedEvents")
+      const userEventsQuerySnapshot = await db
+        .collection("accessedEvents")
         .where("userId", "==", userId)
         .get();
-  
+
       // Check if the query returned any documents
       if (!userEventsQuerySnapshot.empty) {
         const events = [];
-  
+
         // Iterate over each document and fetch the event details
         for (const doc of userEventsQuerySnapshot.docs) {
-          const eventId = doc.id.split('_')[1]; // Assuming the document ID is in the format 'userId_eventId'
-  
+          const eventId = doc.id.split("_")[1]; // Assuming the document ID is in the format 'userId_eventId'
+
           const eventRef = db.collection("events").doc(eventId);
           const eventSnapshot = await eventRef.get();
-  
+
           if (eventSnapshot.exists) {
             const eventData = eventSnapshot.data();
-  
+
             // Check if the event's creatorId does not match the userId
             if (eventData.creatorId !== userId) {
               events.push({
@@ -390,13 +403,15 @@ class Event {
                 coverPhotoUrl: eventData.coverPhotoUrl,
               });
             } else {
-              console.log(`Event with eventId: ${eventId} was created by the user and hence not added.`);
+              console.log(
+                `Event with eventId: ${eventId} was created by the user and hence not added.`
+              );
             }
           } else {
             console.log(`No event found for eventId: ${eventId}`); // Log when no event is found
           }
         }
-  
+
         return events; // Return an array of events
       } else {
         console.log(`No accessed events found for user ${userId}`);
@@ -407,64 +422,124 @@ class Event {
       throw error;
     }
   }
-  
-  
-  
 
   static async deleteGalleryImage(eventId, imageId) {
     try {
-        // Fetch the event document
-        const eventRef = db.collection('events').doc(eventId);
-        const eventDoc = await eventRef.get();
+      // Fetch the event document
+      const eventRef = db.collection("events").doc(eventId);
+      const eventDoc = await eventRef.get();
 
-        if (!eventDoc.exists) {
-            throw new Error('Event not found');
-        }
+      if (!eventDoc.exists) {
+        throw new Error("Event not found");
+      }
 
-        const eventData = eventDoc.data();
-        const rekognitionIds = eventData.rekognitionIds || [];
+      const eventData = eventDoc.data();
+      const rekognitionIds = eventData.rekognitionIds || [];
 
-        // For this example, we're assuming that the rekognition ID corresponds to the image ID.
-        // If this isn't the case, you'll need to have a way to map from the image ID to the rekognition ID.
-        const rekognitionImageId = rekognitionIds.find(id => id === imageId);
+      // For this example, we're assuming that the rekognition ID corresponds to the image ID.
+      // If this isn't the case, you'll need to have a way to map from the image ID to the rekognition ID.
+      const rekognitionImageId = rekognitionIds.find((id) => id === imageId);
 
-        // If rekognitionImageId exists, then proceed with Rekognition deletion
-        if (rekognitionImageId) {
-            // Determine the Rekognition collection ID from the event document
-            const rekognitionCollectionId = eventData.rekognitionCollectionId;
+      // If rekognitionImageId exists, then proceed with Rekognition deletion
+      if (rekognitionImageId) {
+        // Determine the Rekognition collection ID from the event document
+        const rekognitionCollectionId = eventData.rekognitionCollectionId;
 
-            // Delete the face from AWS Rekognition
-            const { rekognition } = awsConfig;
-            const rekognitionParams = {
-                CollectionId: rekognitionCollectionId,
-                FaceIds: [rekognitionImageId],
-            };
-
-            await rekognition.deleteFaces(rekognitionParams).promise();
-        }
-
-        // Delete the image from the S3 bucket
-        const regularS3BucketName = process.env.AWS_S3_RAW_BUCKET;
-        const regularS3Key = `events/${eventId}/gallery/${imageId}`;
-
-        const s3DeleteParams = {
-            Bucket: regularS3BucketName,
-            Key: regularS3Key,
+        // Delete the face from AWS Rekognition
+        const { rekognition } = awsConfig;
+        const rekognitionParams = {
+          CollectionId: rekognitionCollectionId,
+          FaceIds: [rekognitionImageId],
         };
 
-        await s3.deleteObject(s3DeleteParams).promise();
+        await rekognition.deleteFaces(rekognitionParams).promise();
+      }
 
-        // Remove the image URL from Firestore
-        await eventRef.update({
-            regularGallery: admin.firestore.FieldValue.arrayRemove(regularS3Key),
-        });
+      // Delete the image from the S3 bucket
+      const regularS3BucketName = process.env.AWS_S3_RAW_BUCKET;
+      const regularS3Key = `events/${eventId}/gallery/${imageId}`;
 
+      const s3DeleteParams = {
+        Bucket: regularS3BucketName,
+        Key: regularS3Key,
+      };
+
+      await s3.deleteObject(s3DeleteParams).promise();
+
+      // Remove the image URL from Firestore
+      await eventRef.update({
+        regularGallery: admin.firestore.FieldValue.arrayRemove(regularS3Key),
+      });
     } catch (error) {
-        console.error('Error deleting gallery image:', error);
-        throw error;
+      console.error("Error deleting gallery image:", error);
+      throw error;
     }
-}
+  }
 
+  static async deleteEvent(eventId) {
+    try {
+      // Fetch the event document
+      const eventRef = db.collection("events").doc(eventId);
+      const eventDoc = await eventRef.get();
+
+      if (!eventDoc.exists) {
+        throw new Error("Event not found");
+      }
+
+      const eventData = eventDoc.data();
+      const rekognitionIds = eventData.rekognitionIds || [];
+      const rekognitionCollectionId = eventData.rekognitionCollectionId;
+      const galleryImages = eventData.regularGallery || []; // URLs of images in S3.
+
+      // Prepare AWS services
+      const { rekognition } = awsConfig;
+      const regularS3BucketName = process.env.AWS_S3_RAW_BUCKET;
+
+      // Delete images from S3
+      for (const imageUrl of galleryImages) {
+        // Extract the key from the imageUrl. This depends on the structure of your URL.
+        // Assuming the URL is: https://<bucket-name>.s3.amazonaws.com/<key>
+        const urlParts = imageUrl.split("/");
+        const keyIndex = urlParts.indexOf(regularS3BucketName) + 2; // +1 for "s3.amazonaws.com", +1 to get to the key
+        const s3Key = urlParts.slice(keyIndex).join("/");
+
+        const s3DeleteParams = {
+          Bucket: regularS3BucketName,
+          Key: s3Key,
+        };
+
+        // Delete image from S3
+        await s3.deleteObject(s3DeleteParams).promise();
+      }
+
+      // Delete faces from Rekognition
+      if (rekognitionIds.length > 0) {
+        const rekognitionDeleteParams = {
+          CollectionId: rekognitionCollectionId,
+          FaceIds: rekognitionIds,
+        };
+        await rekognition.deleteFaces(rekognitionDeleteParams).promise();
+      }
+
+      // Delete the Rekognition collection
+      const rekognitionCollectionDeleteParams = {
+        CollectionId: rekognitionCollectionId,
+      };
+      await rekognition
+        .deleteCollection(rekognitionCollectionDeleteParams)
+        .promise();
+
+      // Delete the event from Firestore
+      await eventRef.delete();
+
+      console.log("Event deleted successfully");
+      // Inside your deleteEvent method, after the event is successfully deleted
+      io.emit("event-deleted", { eventId });
+    } catch (error) {
+      console.error("Error deleting event:", error);
+      throw error;
+    }
+  }
 }
 
 module.exports = Event;
