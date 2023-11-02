@@ -85,112 +85,81 @@ class Event {
 
   static async uploadGalleryImage(eventId, file) {
     try {
-      // Fetch the Image URLs from Firestore
-      const eventRef = db.collection("events").doc(eventId);
-      const eventDoc = await eventRef.get();
-      const io = socket.getIo();
+        // Fetch the Image URLs from Firestore
+        const eventRef = db.collection("events").doc(eventId);
+        const eventDoc = await eventRef.get();
+        const io = socket.getIo();
 
-      if (!eventDoc.exists) {
-        throw new Error("Event not found");
-      }
+        if (!eventDoc.exists) {
+            throw new Error("Event not found");
+        }
 
-      const eventData = eventDoc.data();
-      const galleryImages = eventData.regularGallery || []; // Assuming `regularGallery` is an array of image URLs.
+        const eventData = eventDoc.data();
+        const galleryImages = eventData.regularGallery || [];
+        const imageId = `gallery_${file.originalname}`;
+        const imageRef = `events/${eventId}/gallery/${imageId}`;
 
-      // Check against the Current Image
-      const imageId = `gallery_${file.originalname}`;
-      const imageRef = `events/${eventId}/gallery/${imageId}`;
+        if (galleryImages.includes(imageRef)) {
+            throw new Error("Image already exists in the gallery.");
+        }
 
-      if (galleryImages.includes(imageRef)) {
-        // Image already exists, return or throw an error
-        throw error("Image already exists in the gallery.");
-      }
-
-      // Process the image
-      let processedBuffer;
-      const imageFormat = file.mimetype.split("/")[1];
-
-      switch (imageFormat) {
-        case "jpeg":
-          processedBuffer = await sharp(file.buffer)
-            .rotate()
-            .jpeg({ quality: 90 })
+        // Process the image for Rekognition (compressed)
+        let rekognitionBuffer = await sharp(file.buffer)
+            .resize(800) // Resize the image for Rekognition to reduce file size
             .toBuffer();
-          break;
-        case "png":
-          processedBuffer = await sharp(file.buffer)
-            .rotate()
-            .png({ quality: 90 })
-            .toBuffer();
-          break;
-        default:
-          processedBuffer = await sharp(file.buffer).rotate().png().toBuffer();
-          break;
-      }
 
-      // Determine the Rekognition collection ID from the event document
-      const rekognitionCollectionId = eventData.rekognitionCollectionId;
+        // Determine the Rekognition collection ID from the event document
+        const rekognitionCollectionId = eventData.rekognitionCollectionId;
 
-      // Upload the image to the Rekognition collection
-      const { rekognition } = awsConfig;
-      const rekognitionParams = {
-        CollectionId: rekognitionCollectionId,
-        ExternalImageId: imageId,
-        DetectionAttributes: ["ALL"],
-        Image: {
-          Bytes: processedBuffer,
-        },
-      };
+        // Upload the compressed image to the Rekognition collection
+        const { rekognition } = awsConfig;
+        const rekognitionParams = {
+            CollectionId: rekognitionCollectionId,
+            ExternalImageId: imageId,
+            DetectionAttributes: ["ALL"],
+            Image: { Bytes: rekognitionBuffer },
+        };
 
-      const rekognitionResponse = await rekognition
-        .indexFaces(rekognitionParams)
-        .promise();
+        const rekognitionResponse = await rekognition.indexFaces(rekognitionParams).promise();
+        const rekognitionImageId = rekognitionResponse.FaceRecords.length > 0
+            ? rekognitionResponse.FaceRecords[0].Face.ImageId
+            : null;
 
-      // Retrieve the Rekognition image ID from the response
-      const rekognitionImageId =
-        rekognitionResponse.FaceRecords.length > 0
-          ? rekognitionResponse.FaceRecords[0].Face.ImageId
-          : null;
+        // Upload the full-quality image to the regular S3 bucket
+        const regularS3BucketName = process.env.AWS_S3_RAW_BUCKET;
+        const regularS3Key = `events/${eventId}/gallery/${imageId}`;
 
-      if (rekognitionImageId) {
-        await eventRef.update({
-          regularGallery: admin.firestore.FieldValue.arrayUnion(imageRef),
-          rekognitionIds:
-            admin.firestore.FieldValue.arrayUnion(rekognitionImageId),
-        });
-      } else {
-        await eventRef.update({
-          regularGallery: admin.firestore.FieldValue.arrayUnion(imageRef),
-        });
-      }
+        const fullQualityS3Params = {
+            Bucket: regularS3BucketName,
+            Key: regularS3Key,
+            Body: file.buffer, // Use the original file buffer for full quality
+            ContentType: file.mimetype,
+            CacheControl: "public, max-age=31536000",
+        };
 
-      // Upload the image to the regular S3 bucket
-      const regularS3BucketName = process.env.AWS_S3_RAW_BUCKET;
-      const regularS3Key = `events/${eventId}/gallery/${imageId}`;
+        await s3.upload(fullQualityS3Params).promise();
+        const imageUrl = `https://${regularS3BucketName}.s3.amazonaws.com/${regularS3Key}`;
 
-      // Determine the ContentType based on original or converted format
-      const contentType = imageFormat === "raw" ? "image/png" : file.mimetype;
+        // Emit the new image URL to update clients in real-time
+        io.emit("new-image", { imageUrl: imageUrl });
 
-      const regularS3Params = {
-        Bucket: regularS3BucketName,
-        Key: regularS3Key,
-        Body: processedBuffer,
-        ContentEncoding: "base64",
-        ContentType: contentType,
-        CacheControl: "public, max-age=31536000",
-      };
+        // Update the event document with the new image reference and Rekognition ID
+        const updateObject = {
+            regularGallery: admin.firestore.FieldValue.arrayUnion(imageRef)
+        };
+        if (rekognitionImageId) {
+            updateObject.rekognitionIds = admin.firestore.FieldValue.arrayUnion(rekognitionImageId);
+        }
+        await eventRef.update(updateObject);
 
-      await s3.upload(regularS3Params).promise();
-
-      const imageUrl = `https://${regularS3BucketName}.s3.amazonaws.com/${regularS3Key}`;
-      io.emit("new-image", { imageUrl: imageUrl });
-
-      return rekognitionImageId;
+        // Return the Rekognition Image ID and the URL to the full-quality image
+        return { rekognitionImageId, imageUrl };
     } catch (error) {
-      console.error("Error uploading gallery image:", error);
-      throw error;
+        console.error("Error uploading gallery image:", error);
+        throw error;
     }
-  }
+}
+
 
   static async createEvent(
     eventName,
@@ -255,6 +224,64 @@ class Event {
       throw error;
     }
   }
+
+  static async editEvent(
+    eventId,
+    eventName,
+    eventDateTime,
+    eventLocation,
+    coverPhoto
+  ) {
+    const io = socket.getIo();
+    try {
+      let coverPhotoUrl;
+      
+      // Only upload a new cover photo if one is provided
+      if (coverPhoto) {
+        coverPhotoUrl = await this.uploadCoverPhoto(coverPhoto);
+      }
+  
+      // Reference the existing document in Firestore
+      const eventRef = db.collection("events").doc(eventId);
+  
+      // Check if the event exists before updating
+      const eventSnapshot = await eventRef.get();
+      if (!eventSnapshot.exists) {
+        throw new Error('Event not found.');
+      }
+  
+      // Prepare the update data object
+      const updateData = {
+        eventName,
+        eventDateTime,
+        eventLocation,
+        // Do not include creatorId in the update
+      };
+  
+      // If a new cover photo was uploaded, add it to the update data
+      if (coverPhotoUrl) {
+        updateData.coverPhotoUrl = coverPhotoUrl;
+      }
+  
+      // Update the event document
+      await eventRef.update(updateData);
+  
+      console.log("Event updated successfully");
+      
+      // Emit an event using socket.io to notify about the event update
+      io.emit("event-updated", {
+        eventId,
+        ...updateData,
+      });
+  
+      return eventId;
+    } catch (error) {
+      console.error("Error updating event:", error);
+      throw error;
+    }
+  }
+  
+  
 
   static async getGalleryImages(eventId) {
     try {
