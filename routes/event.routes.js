@@ -10,6 +10,7 @@ const storage = multer.memoryStorage(); // Store the file in memory as a buffer
 const upload = multer({ storage: storage });
 
 router.post('/create', upload.single('coverPhoto'), eventController.createEvent);
+router.patch('/:eventId/edit', upload.single('coverPhoto'), eventController.editEvent);
 router.get('/all/:userId', eventController.getUserAndAccessedEvents);
 router.post('/:eventId/upload', upload.single('galleryImage'), eventController.uploadGalleryImage);
 router.get('/:eventId/gallery', eventController.getGalleryImages);

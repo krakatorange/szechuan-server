@@ -33,6 +33,47 @@ const eventController = {
     }
   },
 
+  editEvent: async (req, res) => {
+    try {
+      // Extract the event ID and other properties from the request
+      const eventId = req.params.eventId;
+      const { eventName, eventDateTime, eventLocation } = req.body;
+      const coverPhoto = req.file; // Assuming the cover photo is sent as a file
+  
+      // Validate input
+      if (!eventId) {
+        return res.status(400).json({ error: "Event ID must be provided" });
+      }
+      if (!eventName && !eventDateTime && !eventLocation && !coverPhoto) {
+        return res.status(400).json({ error: "No update data provided" });
+      }
+  
+      // Call the editEvent service method
+      await Event.editEvent(
+        eventId,
+        eventName,
+        eventDateTime,
+        eventLocation,
+        coverPhoto
+        // Notice creatorId is no longer passed
+      );
+  
+      // If successful, send a success response
+      return res.status(200).json({ message: "Event updated successfully", eventId });
+  
+    } catch (error) {
+      console.error("Error:", error);
+      // If the error is because the event was not found, send a 404 response
+      if (error.message === 'Event not found.') {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      // For other errors, send a 500 response
+      return res.status(500).json({ error: "An error occurred" });
+    }
+  },
+  
+  
+
   uploadGalleryImage: async (req, res) => {
     try {
       const { eventId } = req.params;

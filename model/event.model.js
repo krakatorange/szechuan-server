@@ -256,6 +256,64 @@ class Event {
     }
   }
 
+  static async editEvent(
+    eventId,
+    eventName,
+    eventDateTime,
+    eventLocation,
+    coverPhoto
+  ) {
+    const io = socket.getIo();
+    try {
+      let coverPhotoUrl;
+      
+      // Only upload a new cover photo if one is provided
+      if (coverPhoto) {
+        coverPhotoUrl = await this.uploadCoverPhoto(coverPhoto);
+      }
+  
+      // Reference the existing document in Firestore
+      const eventRef = db.collection("events").doc(eventId);
+  
+      // Check if the event exists before updating
+      const eventSnapshot = await eventRef.get();
+      if (!eventSnapshot.exists) {
+        throw new Error('Event not found.');
+      }
+  
+      // Prepare the update data object
+      const updateData = {
+        eventName,
+        eventDateTime,
+        eventLocation,
+        // Do not include creatorId in the update
+      };
+  
+      // If a new cover photo was uploaded, add it to the update data
+      if (coverPhotoUrl) {
+        updateData.coverPhotoUrl = coverPhotoUrl;
+      }
+  
+      // Update the event document
+      await eventRef.update(updateData);
+  
+      console.log("Event updated successfully");
+      
+      // Emit an event using socket.io to notify about the event update
+      io.emit("event-updated", {
+        eventId,
+        ...updateData,
+      });
+  
+      return eventId;
+    } catch (error) {
+      console.error("Error updating event:", error);
+      throw error;
+    }
+  }
+  
+  
+
   static async getGalleryImages(eventId) {
     try {
       const s3BucketName = process.env.AWS_S3_RAW_BUCKET;
