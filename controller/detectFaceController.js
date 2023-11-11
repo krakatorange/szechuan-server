@@ -1,8 +1,10 @@
 const { rekognition, s3 } = require('../config/aws.config');
 require('dotenv').config();
+const socket = require("../socket");
 
 const detectFaceController = {
     detectFace: async (req, res) => {
+        const io = socket.getIo();
         try {
             const userId = req.body.userId;
             const eventId = req.body.eventId;
@@ -82,6 +84,16 @@ const detectFaceController = {
                         await s3.copyObject(copyParams).promise();
                     
                         console.log(`Matched image copied to szechuan-matches: ${destinationKey}`);
+
+                        io.emit('new-face-match', {
+                            userId: userId,
+                            eventId: eventId,
+                            matchedImage: {
+                                imageUrl: matchedImageUrl,
+                                // Any other relevant data
+                            },
+                        });
+                        
                     } catch (copyError) {
                         console.error('Error copying image:', copyError);
                         // Add additional logging to help identify the issue
