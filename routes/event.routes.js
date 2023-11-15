@@ -23,5 +23,6 @@ router.get('/fetch-external-resource', corsProxyMiddleware);
 router.get('/fetch-image', fetchImageMiddleware);
 router.delete('/:eventId/gallery/:imageId', eventController.deleteGalleryImage);
 router.delete('/event/:eventId', eventController.deleteEvent);
+router.delete('/:eventId/matchdelete', detectFaceController.deleteImage);
 
 module.exports = router;

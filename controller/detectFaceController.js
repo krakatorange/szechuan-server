@@ -140,6 +140,29 @@ const detectFaceController = {
             res.status(500).json({ error: 'An error occurred' });
         }
     },
+
+    deleteImage: async (req, res) => {
+        try {
+            const { userId, imageKey } = req.body; // Extract eventId, userId, and imageKey from request body
+            const {eventId} = req.params;
+
+            const bucket = process.env.AWS_S3_MATCHES_BUCKET; // The bucket from which you want to delete the image
+            const objectKey = `events/${eventId}/users/${userId}/${imageKey}`; // Construct the key for the S3 object
+
+            const deleteParams = {
+                Bucket: bucket,
+                Key: objectKey,
+            };
+
+            await s3.deleteObject(deleteParams).promise(); // Delete the object
+
+            console.log(`Image deleted from ${bucket}: ${objectKey}`);
+            res.status(200).json({ message: 'Image successfully deleted.' });
+        } catch (error) {
+            console.error('Error:', error);
+            res.status(500).json({ error: 'An error occurred while deleting the image' });
+        }
+    },
 };
 
 module.exports = detectFaceController;
