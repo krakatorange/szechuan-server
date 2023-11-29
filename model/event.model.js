@@ -476,65 +476,65 @@ class Event {
       // Fetch the event document
       const eventRef = db.collection("events").doc(eventId);
       const eventDoc = await eventRef.get();
-
+  
       if (!eventDoc.exists) {
         throw new Error("Event not found");
       }
-
+  
       const eventData = eventDoc.data();
       const rekognitionIds = eventData.rekognitionIds || [];
       const rekognitionCollectionId = eventData.rekognitionCollectionId;
-      const galleryImages = eventData.regularGallery || []; // URLs of images in S3.
-
+      const galleryImages = eventData.regularGallery || []; // Array of image objects.
+  
       // Prepare AWS services
       const { rekognition } = awsConfig;
       const regularS3BucketName = process.env.AWS_S3_RAW_BUCKET;
-
-      // Delete images from S3
-      for (const imageUrl of galleryImages) {
-        // Extract the key from the imageUrl. This depends on the structure of your URL.
-        // Assuming the URL is: https://<bucket-name>.s3.amazonaws.com/<key>
-        const urlParts = imageUrl.split("/");
-        const keyIndex = urlParts.indexOf(regularS3BucketName) + 2; // +1 for "s3.amazonaws.com", +1 to get to the key
-        const s3Key = urlParts.slice(keyIndex).join("/");
-
+  
+      // Delete images from S3 in parallel
+      const deleteImagePromises = galleryImages.map(imageObj => {
+        if (typeof imageObj.imageRef !== 'string') {
+          console.error('Invalid image reference:', imageObj.imageRef);
+          return Promise.resolve(); // Resolve to skip invalid entries
+        }
+  
+        const s3Key = imageObj.imageRef;
         const s3DeleteParams = {
           Bucket: regularS3BucketName,
           Key: s3Key,
         };
-
-        // Delete image from S3
-        await s3.deleteObject(s3DeleteParams).promise();
-      }
-
-      // Delete faces from Rekognition
+  
+        return s3.deleteObject(s3DeleteParams).promise();
+      });
+  
+      await Promise.all(deleteImagePromises);
+  
+      // Delete faces from Rekognition in batch (if supported)
+      // Example code, adjust based on AWS SDK capabilities
+      const rekognitionDeleteParams = {
+        CollectionId: rekognitionCollectionId,
+        FaceIds: rekognitionIds,
+      };
       if (rekognitionIds.length > 0) {
-        const rekognitionDeleteParams = {
-          CollectionId: rekognitionCollectionId,
-          FaceIds: rekognitionIds,
-        };
         await rekognition.deleteFaces(rekognitionDeleteParams).promise();
       }
-
+  
       // Delete the Rekognition collection
       const rekognitionCollectionDeleteParams = {
         CollectionId: rekognitionCollectionId,
       };
-      await rekognition
-        .deleteCollection(rekognitionCollectionDeleteParams)
-        .promise();
-
+      await rekognition.deleteCollection(rekognitionCollectionDeleteParams).promise();
+  
       // Delete the event from Firestore
       await eventRef.delete();
-
+  
       console.log("Event deleted successfully");
-      // Inside your deleteEvent method, after the event is successfully deleted
-      io.emit("event-deleted", { eventId });
+      io.emit("event-deleted", { eventId: eventId });
     } catch (error) {
       console.error("Error deleting event:", error);
       throw error;
     }
   }
+  
 
   static async deleteGalleryImage(eventId, imageId) {
     try {
