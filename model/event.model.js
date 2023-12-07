@@ -5,6 +5,7 @@ const awsConfig = require("../config/aws.config");
 const { getExistingFileName, deleteSelfie } = require("../s3Utilitis");
 const sharp = require("sharp");
 const socket = require("../socket");
+const { PassThrough } = require('stream');
 
 admin.initializeApp({
   credential: admin.credential.cert({
@@ -110,56 +111,71 @@ class Event {
         .jpeg({ quality: 70 }) 
         .toBuffer();
 
-      // Determine the Rekognition collection ID from the event document
-      const rekognitionCollectionId = eventData.rekognitionCollectionId;
+      // Upload compressed image to processed bucket
+      const processedS3BucketName = process.env.AWS_S3_PROCESSED_BUCKET;
+      const processedS3Key = `events/${eventId}/gallery/processed_${imageId}`;
+      
+      await s3.upload({
+        Bucket: processedS3BucketName,
+        Key: processedS3Key,
+        Body: rekognitionBuffer,
+        ContentType: 'image/jpeg',
+        CacheControl: "public, max-age=31536000",
+      }).promise();
 
-      // Upload the compressed image to the Rekognition collection
-      const { rekognition } = awsConfig;
+      const processedImageUrl = `https://${processedS3BucketName}.s3.amazonaws.com/${processedS3Key}`;
+
+      // Rekognition Service to detect faces
+      const {rekognition} = awsConfig;
       const rekognitionParams = {
-        CollectionId: rekognitionCollectionId,
+        CollectionId: eventData.rekognitionCollectionId,
         ExternalImageId: imageId,
         DetectionAttributes: ["ALL"],
-        Image: { Bytes: rekognitionBuffer },
+        Image: { 
+          S3Object: { 
+            Bucket: processedS3BucketName, 
+            Name: processedS3Key 
+          } 
+        },
       };
 
       const rekognitionResponse = await rekognition
         .indexFaces(rekognitionParams)
         .promise();
-      const rekognitionImageId =
-        rekognitionResponse.FaceRecords.length > 0
-          ? rekognitionResponse.FaceRecords[0].Face.ImageId
-          : null;
+      const rekognitionImageId = rekognitionResponse.FaceRecords.length > 0
+        ? rekognitionResponse.FaceRecords[0].Face.ImageId
+        : null;
 
-      // Upload the full-quality image to the regular S3 bucket
+      // Upload original image to regular bucket using multipart upload
       const regularS3BucketName = process.env.AWS_S3_RAW_BUCKET;
       const regularS3Key = `events/${eventId}/gallery/${imageId}`;
-
-      const fullQualityS3Params = {
+      
+      // Assuming file.buffer is a Buffer of your original image
+      const pass = new PassThrough();
+      pass.end(file.buffer);
+      await s3.upload({
         Bucket: regularS3BucketName,
         Key: regularS3Key,
-        Body: file.buffer, // Use the original file buffer for full quality
+        Body: pass,
         ContentType: file.mimetype,
         CacheControl: "public, max-age=31536000",
-      };
+      }).promise();
 
-      await s3.upload(fullQualityS3Params).promise();
       const imageUrl = `https://${regularS3BucketName}.s3.amazonaws.com/${regularS3Key}`;
 
-      // Emit the new image URL to update clients in real-time
-      io.emit("new-image", { imageUrl: imageUrl });
-
-      // Update the event document with the new image reference and Rekognition ID
+      // Update the event document in Firestore
       const updateObject = {
         regularGallery: admin.firestore.FieldValue.arrayUnion({
           imageRef: imageRef,
           timestamp: timestamp,
+          rekognitionImageId: rekognitionImageId ? rekognitionImageId : null,
         }),
       };
-      if (rekognitionImageId) {
-        updateObject.rekognitionIds =
-          admin.firestore.FieldValue.arrayUnion(rekognitionImageId);
-      }
+
       await eventRef.update(updateObject);
+
+      // Emit the new image URL to update clients in real-time
+      io.emit("new-image", { imageUrl: imageUrl });
 
       // Return the Rekognition Image ID and the URL to the full-quality image
       return { rekognitionImageId, imageUrl, timestamp };
