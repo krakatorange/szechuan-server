@@ -111,19 +111,19 @@ class Event {
         .jpeg({ quality: 70 }) 
         .toBuffer();
 
-      // Upload compressed image to processed bucket
-      const processedS3BucketName = process.env.AWS_S3_REKOGNITION_BUCKET;
-      const processedS3Key = `events/${eventId}/gallery/processed_${imageId}`;
+      // Upload compressed image to rekognition bucket
+      const rekognitionS3BucketName = process.env.AWS_S3_REKOGNITION_BUCKET;
+      const rekognitionS3Key = `events/${eventId}/gallery/${imageId}`;
       
       await s3.upload({
-        Bucket: processedS3BucketName,
-        Key: processedS3Key,
+        Bucket: rekognitionS3BucketName,
+        Key: rekognitionS3Key,
         Body: rekognitionBuffer,
         ContentType: 'image/jpeg',
         CacheControl: "public, max-age=31536000",
       }).promise();
 
-      const processedImageUrl = `https://${processedS3BucketName}.s3.amazonaws.com/${processedS3Key}`;
+      const rekognitionImageUrl = `https://${rekognitionS3BucketName}.s3.amazonaws.com/${rekognitionS3Key}`;
 
       // Rekognition Service to detect faces
       const {rekognition} = awsConfig;
@@ -133,8 +133,8 @@ class Event {
         DetectionAttributes: ["ALL"],
         Image: { 
           S3Object: { 
-            Bucket: processedS3BucketName, 
-            Name: processedS3Key 
+            Bucket: rekognitionS3BucketName, 
+            Name: rekognitionS3Key 
           } 
         },
       };
