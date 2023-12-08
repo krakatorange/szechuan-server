@@ -112,7 +112,7 @@ class Event {
         .toBuffer();
 
       // Upload compressed image to processed bucket
-      const processedS3BucketName = process.env.AWS_S3_PROCESSED_BUCKET;
+      const processedS3BucketName = process.env.AWS_S3_REKOGNITION_BUCKET;
       const processedS3Key = `events/${eventId}/gallery/processed_${imageId}`;
       
       await s3.upload({
